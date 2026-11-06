@@ -264,6 +264,58 @@ def init_db():
     conn.commit()
     conn.close()
     inicializar_catalogo_portales()
+    seed_initial_data_if_empty()
+
+
+def seed_initial_data_if_empty():
+    """Importa respuestas_aprendidas y ofertas semilla si la base de datos está vacía."""
+    conn = get_conn()
+    cur = conn.cursor()
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    seed_dir = os.path.join(base_dir, "data_seed")
+
+    # 1. Respuestas aprendidas
+    cur.execute("SELECT COUNT(*) FROM respuestas_aprendidas")
+    if cur.fetchone()[0] == 0:
+        resp_file = os.path.join(seed_dir, "respuestas_aprendidas.json")
+        if os.path.exists(resp_file):
+            try:
+                with open(resp_file, "r", encoding="utf-8") as f:
+                    items = json.load(f)
+                    for item in items:
+                        cur.execute("""
+                        INSERT OR IGNORE INTO respuestas_aprendidas (pregunta_clave, respuesta, categoria, veces_usada, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """, (item["pregunta_clave"], item["respuesta"], item.get("categoria", "general"), item.get("veces_usada", 1), item.get("created_at", "")))
+                conn.commit()
+            except Exception as e:
+                print(f"Aviso al cargar respuestas aprendidas semilla: {e}")
+
+    # 2. Ofertas en cola
+    cur.execute("SELECT COUNT(*) FROM postulaciones")
+    if cur.fetchone()[0] == 0:
+        ofertas_file = os.path.join(seed_dir, "ofertas_en_cola.json")
+        if os.path.exists(ofertas_file):
+            try:
+                with open(ofertas_file, "r", encoding="utf-8") as f:
+                    items = json.load(f)
+                    for item in items:
+                        cur.execute("""
+                        INSERT OR IGNORE INTO postulaciones (
+                            portal, external_id, url_oferta, empresa, cargo,
+                            descripcion, modalidad, renta, estado, fecha_detectada, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            item.get("portal", ""), item.get("external_id", ""), item.get("url_oferta", ""),
+                            item.get("empresa", ""), item.get("cargo", ""), item.get("descripcion", ""),
+                            item.get("modalidad", ""), item.get("renta", 0), item.get("estado", "🟡 Lista con IA (En Cola 1-Clic)"),
+                            item.get("fecha_detectada", ""), item.get("updated_at", "")
+                        ))
+                conn.commit()
+            except Exception as e:
+                print(f"Aviso al cargar ofertas semilla: {e}")
+
+    conn.close()
 
 
 def inicializar_catalogo_portales():

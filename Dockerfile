@@ -32,3 +32,4 @@ RUN python -m playwright install chromium
 COPY . /app/
 
 CMD ["python", "bucle_pantalla_interactivo.py"]
+

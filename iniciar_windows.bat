@@ -30,6 +30,7 @@ if not exist "venv" (
 
 :: 3. Activar entorno virtual
 call venv\Scripts\activate.bat
+set PATH=%~dp0bin;%PATH%
 
 :: 4. Instalar o actualizar dependencias
 echo [i] Verificando dependencias...
@@ -77,3 +78,4 @@ python bucle_pantalla_interactivo.py
 echo.
 echo Sesión finalizada.
 pause
+

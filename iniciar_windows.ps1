@@ -22,6 +22,7 @@ if (-not (Test-Path "venv")) {
 }
 
 & "venv\Scripts\Activate.ps1"
+$env:PATH = "$PSScriptRoot\bin;$env:PATH"
 
 # 3. Dependencias
 Write-Host "[i] Verificando dependencias..." -ForegroundColor Gray
@@ -49,3 +50,4 @@ if ($browserExe) {
 # 5. Ejecutar
 Write-Host "[🚀] Iniciando AutoPostula..." -ForegroundColor Cyan
 python bucle_pantalla_interactivo.py
+

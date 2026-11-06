@@ -80,22 +80,23 @@ GLOBAL_CON_VOZ = True
 GLOBAL_ENFOCAR = True
 
 def hablar(texto: str, final: bool = False):
-    """Ejecuta Di para narrar en tiempo real si está habilitado; soporta Linux y Windows (SAPI)."""
+    """Ejecuta Di para narrar en tiempo real si está habilitado; soporta Linux y Windows 11 con Edge-TTS."""
     if not GLOBAL_CON_VOZ:
         return
-    di_path = "/home/dhamit/.local/bin/Di"
-    if os.path.exists(di_path):
-        cmd = [di_path]
-        if final:
-            cmd.append("--final")
-        try:
-            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, text=True)
-            proc.communicate(input=texto)
-            return
-        except Exception as e:
-            print(f"Error Di: {e}", file=sys.stderr)
+
+    di_system = "/home/dhamit/.local/bin/Di"
+    local_di_py = BASE_DIR / "bin" / "di.py"
+
+    if os.path.exists(di_system):
+        cmd = [di_system]
+    elif local_di_py.exists():
+        cmd = [sys.executable, str(local_di_py)]
     elif shutil.which("Di"):
         cmd = ["Di"]
+    else:
+        cmd = None
+
+    if cmd:
         if final:
             cmd.append("--final")
         try:
@@ -105,7 +106,7 @@ def hablar(texto: str, final: bool = False):
         except Exception as e:
             print(f"Error Di: {e}", file=sys.stderr)
 
-    # Si estamos en Windows, usar síntesis nativa de voz en español (SAPI)
+    # Si estamos en Windows y no hay Di ejecutable, usar síntesis SAPI nativa
     if sys.platform == "win32":
         try:
             clean_txt = texto.replace('"', '').replace("'", "").replace("`", "")

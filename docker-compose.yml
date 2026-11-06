@@ -13,3 +13,4 @@ services:
       - ./data:/app/data
       - ./perfil_alumno.json:/app/perfil_alumno.json
       - ./cv.pdf:/app/cv.pdf
+
