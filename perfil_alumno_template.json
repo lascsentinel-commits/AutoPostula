@@ -1,0 +1,52 @@
+{
+  "datos_personales": {
+    "nombre_completo": "Carolina ...",
+    "rut": "12.345.678-9",
+    "telefono": "+56 9 ...",
+    "correo_contacto": "carolina.ejemplo@gmail.com",
+    "correo_institucional": "carolina.alumno@duocuc.cl",
+    "comuna_residencia": "Santiago / Providencia / ...",
+    "region": "Región Metropolitana",
+    "licencia_conducir": "No cuenta / Clase B"
+  },
+  "situacion_academica": {
+    "institucion": "Duoc UC / Inacap / Universidad ...",
+    "sede": "Sede ...",
+    "carrera": "Nombre exacto de la carrera",
+    "nivel_academico": "Técnico / Ingeniería",
+    "año_cursada": "3er año / 4to año",
+    "semestre_actual": "5to semestre / 8vo semestre / Egreso",
+    "jornada_estudio": "Vespertino / Diurno / Egresado"
+  },
+  "condiciones_practica": {
+    "horas_cronologicas_requeridas": 360,
+    "seguro_escolar_ley_16744": true,
+    "carta_autorizacion_practica": true,
+    "disponibilidad_inicio": "Inmediata / Diciembre / Enero",
+    "jornada_disponible": "Jornada completa diurna (40-45 hrs semanales)",
+    "modalidad_preferida": "Híbrida / Presencial / Remota",
+    "disposicion_extension_horas": true
+  },
+  "condiciones_legales_y_renta": {
+    "pretension_renta": 0,
+    "comentario_renta": "bash (Acorde a la asignación o movilización que tenga contemplada la empresa para alumnos en práctica)",
+    "ley_inclusion_21015_ajustes": false,
+    "comentario_inclusion": "No requiero ningún ajuste ni apoyo adicional para el desempeño normal y eficiente de las funciones del cargo."
+  },
+  "perfil_profesional_y_competencias": {
+    "areas_interes": [
+      "Desarrollo de Software",
+      "Redes",
+      "Soporte TI",
+      "Ciberseguridad",
+      "Datos / Cloud"
+    ],
+    "stack_tecnologico_clave": "Lenguajes, bases de datos, sistemas operativos y herramientas que domina",
+    "proyectos_o_experiencia_previa": "Descripción breve de 1 o 2 proyectos académicos, laboratorios o trabajos previos",
+    "metodologia_aprendizaje": "Cómo aprende tecnologías nuevas de forma autónoma y estructurada",
+    "trabajo_en_equipo": "Experiencia trabajando con metodologías ágiles (Scrum, Kanban, etc.)"
+  },
+  "motivacion_general": {
+    "pitch_motivacional": "Párrafo motivacional explicando qué busca aportar a la empresa y qué espera aprender en su práctica profesional."
+  }
+}

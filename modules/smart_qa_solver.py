@@ -1,0 +1,283 @@
+"""
+Módulo de Resolución Inteligente y Contextual de Preguntas de Reclutadores con LLM (Gemini 2.5 Flash)
+AutoPostula v4.0 — Duoc UC
+"""
+
+import json
+import os
+import re
+
+try:
+    from google import genai
+    from google.genai import types
+    GENAI_AVAILABLE = True
+except Exception:
+    GENAI_AVAILABLE = False
+
+# Cargar .env de la raíz de AutoPostula si existe
+_env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+if os.path.exists(_env_file):
+    with open(_env_file, "r", encoding="utf-8") as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+
+def limpiar_texto_pregunta(raw_text: str) -> str:
+    """Elimina textos basura de banners, conteo de caracteres y avisos de portales."""
+    t = raw_text or ""
+    t = re.sub(r"Los usuarios Premium tienen.*", "", t, flags=re.DOTALL | re.IGNORECASE)
+    t = re.sub(r"En base a la información de tu currículum.*", "", t, flags=re.DOTALL | re.IGNORECASE)
+    t = re.sub(r"Obténlas con Premium.*", "", t, flags=re.DOTALL | re.IGNORECASE)
+    t = re.sub(r"Máximo \d+[\.,]?\d* caracteres.*", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\(ingresados:\s*\d+\)", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"^Pregunta\s*\d+\s*", "", t, flags=re.IGNORECASE)
+    return t.strip()
+
+SYSTEM_PROMPT_DHANI = """Eres el redactor y asistente de postulación oficial para Dhani Amit Elgueta Ríos.
+Tu tarea es responder las preguntas de los formularios de postulación laboral técnica en Chile de manera impecable, directa, concisa y persuasiva, usando exclusivamente los datos reales del candidato.
+
+PERFIL Y ANTECEDENTES REALES DE DHANI AMIT ELGUETA RÍOS:
+- Nombre: Dhani Amit Elgueta Ríos | Teléfono: +56 9 4850 8528 | Correo: correof1553@gmail.com / dh.elgueta@duocuc.cl
+- Residencia: Las Condes, Región Metropolitana (con total disponibilidad de traslado diurno hacia cualquier comuna de Santiago).
+- Carrera: Ingeniería en Infraestructura y Plataformas Tecnológicas (y Técnico en Conectividad y Redes) en Duoc UC Sede Antonio Varas (jornada vespertina, 4to año / 8vo semestre de egreso).
+- Año que Cursas: 4to año (cuarto año, 8vo semestre de egreso). Cuando cualquier pregunta mencione año, carrera o situación académica, es OBLIGATORIO indicar explícitamente "4to año (cuarto año)".
+- Horario y Disponibilidad: Estudia en vespertino (desde las 19:00 hrs), por lo que cuenta con disponibilidad diurna completa e inmediata (40 a 45 hrs semanales de lunes a viernes, jornada laboral completa presencial o híbrida).
+- Horas de Práctica: 360 horas cronológicas mínimas requeridas por Duoc UC, con total disposición y posibilidad de extender el periodo si el proyecto o la empresa lo requiere.
+- Seguro Escolar: CUMPLE cabalmente; cuenta con Seguro Escolar de Accidentes emitido por Duoc UC bajo la Ley N° 16.744, vigente hasta fines de enero de 2027 para toda la práctica.
+- Carta de Autorización de Práctica: SÍ, cuenta con la Carta de Autorización y presentación de práctica profesional emitida y timbrada por Duoc UC, lista para entrega inmediata.
+- Renta / Asignación: $0 (Acorde a la asignación o movilización que tenga contemplada la empresa para alumnos en práctica profesional). Si el campo pide exclusivamente un número entero, responde 0.
+- Ley de Inclusión (21.015): No requiere ningún ajuste ni apoyo adicional para el desempeño normal y eficiente de las funciones del cargo.
+- Expectativas de Práctica: Integrarse activamente al área técnica de TI para aportar con soluciones prácticas en redes, servidores, cloud y soporte, aprender de la dinámica operativa de la empresa y consolidar experiencia profesional de alto impacto.
+- Competencias Técnicas Clave:
+  * Redes y Conectividad: TCP/IP, VLANs, switching, routing, fibra óptica, enlaces microondas, pfSense, Cisco ASA.
+  * Sistemas y Cloud: Linux (Debian, Ubuntu, RedHat), Windows Server, Active Directory, Azure AD, AWS, GCP, Terraform, Ansible, Docker.
+  * Ciberseguridad y Monitoreo: Wazuh SIEM, Suricata, Zeek, Zabbix, Prometheus, Grafana, OpenTelemetry, hardening de sistemas.
+  * Soporte TI y Continuidad: Aranda, GLPI, osTicket, hardware de servidores, laptops, continuidad operacional bajo SLAs.
+
+REGLAS OBLIGATORIAS:
+1. Responde de forma DIRECTA, en primera persona ("Sí, cuento con...", "Tengo total disponibilidad...", "Espero...").
+2. No te desvíes de la pregunta específica:
+   - Si preguntan si puede asistir de forma presencial a Quilicura o cualquier comuna de la RM, responde afirmativamente: "Sí, resido en Las Condes y cuento con total disponibilidad y facilidad de traslado para asistir de forma presencial a [comuna]."
+   - Si preguntan por disponibilidad horaria o jornada, responde: "Cuento con disponibilidad completa e inmediata para trabajar de lunes a viernes en jornada diurna completa (40 a 45 hrs semanales), ya que curso ramos en modalidad vespertina (desde las 19:00 hrs)."
+   - Si preguntan qué espera de la práctica profesional, responde enfocado en aportar al equipo TI, resolver problemas reales de infraestructura/soporte y consolidar su aprendizaje profesional.
+   - Si preguntan si cuenta con carta de autorización de práctica, responde afirmativamente: "Sí, cuento con la Carta de Autorización y presentación de práctica profesional emitida y timbrada por Duoc UC, lista para entrega inmediata."
+   - Si piden el número de horas de práctica, responde directamente las 360 horas cronológicas requeridas por Duoc UC con total disposición a extenderlas si el proyecto lo requiere.
+   - Si preguntan por situación académica, carrera o en qué año estás (ej. "¿Título o carrera que cursas actualmente y en qué año?"), responde SIEMPRE especificando el cuarto año: "Ingeniería en Infraestructura y Plataformas Tecnológicas, 4to año (cuarto año, 8vo semestre de egreso) en Duoc UC Sede Antonio Varas."
+   - Si preguntan por licencia de conducir, responde: "No cuento con licencia de conducir por el momento, pero tengo excelente conectividad y facilidad de traslado en la Región Metropolitana."
+   - Si piden carta de presentación o motivación, redacta 3-4 líneas formales, directas y motivadas hacia el cargo de TI y la empresa.
+3. Devuelve ÚNICAMENTE el texto que debe ir escrito en el formulario, sin comillas adicionales.
+4. PROHIBICIÓN ESTRICTA DE "N/A" O "NO APLICA": Bajo NINGUNA circunstancia respondas "N/A", "No aplica", "Ninguna" o dejes vacío cuando pregunten por motivación, qué te motiva a postular a la empresa, expectativas o desafíos. Siempre debes redactar una respuesta formal, elocuente y motivada en primera persona, destacando el valor de la empresa, su infraestructura/tecnología y tu compromiso de aportar continuidad operacional y excelencia técnica.
+"""
+
+
+def resolver_preguntas_con_gemini_en_lote(preguntas: list[dict], empresa: str = "la empresa", cargo: str = "Práctica TI") -> dict[int, str]:
+    """Resuelve en una sola llamada a Gemini 2.5 Flash / 3.5 Flash todas las preguntas de un formulario en lote."""
+    if not preguntas:
+        return {}
+
+    if not GENAI_AVAILABLE or not GEMINI_API_KEY:
+        return {idx: resolver_pregunta_reclutador_fallback(p["pregunta"], empresa) for idx, p in enumerate(preguntas)}
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    prompt = (
+        f"Empresa: {empresa}\n"
+        f"Cargo: {cargo}\n"
+        "Preguntas del formulario a responder:\n"
+        + json.dumps({str(i): p.get("pregunta", "") for i, p in enumerate(preguntas)}, ensure_ascii=False, indent=2)
+        + "\n\nDevuelve ÚNICAMENTE un objeto JSON donde cada clave sea el índice como string (\"0\", \"1\", ...) y el valor sea la respuesta exacta para ese campo."
+    )
+
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT_DHANI,
+        temperature=0.2,
+        response_mime_type="application/json"
+    )
+
+    for modelo in ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-2.5-flash"]:
+        try:
+            resp = client.models.generate_content(model=modelo, contents=prompt, config=config)
+            data = json.loads(resp.text)
+            resultado = {}
+            if isinstance(data, list):
+                for idx, val in enumerate(data):
+                    resultado[idx] = str(val).strip()
+            elif isinstance(data, dict):
+                for idx in range(len(preguntas)):
+                    v = data.get(str(idx)) or data.get(str(idx + 1)) or data.get(idx)
+                    if v:
+                        resultado[idx] = str(v).strip()
+            if len(resultado) == len(preguntas):
+                # Post-procesamiento de seguridad: evitar N/A o respuestas vacías en preguntas abiertas
+                for idx, p in enumerate(preguntas):
+                    q_text = p.get("pregunta", "").lower()
+                    ans = resultado.get(idx, "")
+                    if any(w in q_text for w in ["motiva", "por qué", "por que", "interés", "interes", "expectativa"]):
+                        if ans.strip().lower() in ["n/a", "no aplica", "ninguna", "ninguno", "na"] or len(ans.strip()) < 15:
+                            resultado[idx] = f"Me motiva enormemente realizar mi práctica profesional en {empresa} por su liderazgo, dinamismo y su despliegue de infraestructura tecnológica de vanguardia. Como estudiante de 4to año de Ingeniería en Infraestructura y Plataformas Tecnológicas en Duoc UC, busco aportar activamente en las áreas de redes, sistemas y continuidad operacional, aprendiendo de su equipo de alto nivel mientras resuelvo desafíos reales con excelencia."
+                return resultado
+            elif len(resultado) > 0:
+                for idx, p in enumerate(preguntas):
+                    if idx not in resultado:
+                        resultado[idx] = resolver_pregunta_reclutador(p.get("pregunta", ""), empresa)
+                return resultado
+        except Exception as e:
+            print(f"Aviso Gemini {modelo}: {e}")
+
+    # Fallback si falla la llamada
+    return {idx: resolver_pregunta_reclutador_fallback(p.get("pregunta", ""), empresa) for idx, p in enumerate(preguntas)}
+
+
+def resolver_pregunta_reclutador(pregunta_raw: str, empresa: str = "la empresa", tipo_input: str = "text") -> str:
+    """Resuelve una pregunta individual usando Gemini 3.5 Flash-Lite, con fallback a regex estructurado."""
+    if GENAI_AVAILABLE and GEMINI_API_KEY and tipo_input != "radio_boolean":
+        try:
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            config = types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT_DHANI,
+                temperature=0.2,
+                max_output_tokens=300
+            )
+            for modelo in ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-2.5-flash"]:
+                try:
+                    resp = client.models.generate_content(
+                        model=modelo,
+                        contents=f"Empresa: {empresa}\nPregunta: {pregunta_raw}",
+                        config=config
+                    )
+                    txt = resp.text.strip()
+                    if txt:
+                        return txt
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return resolver_pregunta_reclutador_fallback(pregunta_raw, empresa, tipo_input)
+
+
+def resolver_pregunta_reclutador_fallback(pregunta_raw: str, empresa: str = "la empresa", tipo_input: str = "text") -> str:
+    limpia = limpiar_texto_pregunta(pregunta_raw)
+    p = limpia.lower()
+
+    # 1. Teléfono, celular, correo, contacto
+    if re.search(r"\b(tel[eé]fono|celular|correo|email|e-mail|contacto|whatsapp|datos de contacto)\b", p):
+        return "+56 9 4850 8528 | correof1553@gmail.com / dh.elgueta@duocuc.cl"
+
+    # 2. Comuna de residencia / Dónde vives
+    if re.search(r"\b(comuna|residencia|vives|d[oó]nde vives|domicilio|sector de residencia)\b", p):
+        if tipo_input == "radio_boolean":
+            return "si"
+        return "Las Condes, Región Metropolitana (con excelente conectividad en metro y locomoción hacia todas las comunas de Santiago)."
+
+    # 3. Ley de Inclusión / Ajustes razonables / Apoyos
+    if re.search(r"\b(inclusi[oó]n|ajuste|apoyo razonable|discapacidad|adaptaci[oó]n)\b", p):
+        if tipo_input == "radio_boolean":
+            return "no"
+        return "No requiero ningún ajuste ni apoyo adicional para el desempeño normal y eficiente de las funciones del cargo."
+
+    # 4. Pretensión de renta / Asignación económica / Sueldo / Bonificación
+    if re.search(r"\b(renta|sueldo|pretensi[oó]n|asignaci[oó]n|remuneraci[oó]n|bonificaci[oó]n|monto|estipendio|cu[aá]nto esperas)\b", p):
+        if tipo_input == "number":
+            return "0"
+        return "$0 (Acorde a la asignación o movilización que tenga contemplada la empresa para alumnos en práctica profesional)."
+
+    # 5. Seguro escolar de accidentes (Requisito Ley 16.744)
+    if re.search(r"\b(seguro|accidente|16\.?744|cobertura m[eé]dica)\b", p):
+        if tipo_input == "radio_boolean":
+            return "si"
+        return "Sí, cuento con Seguro Escolar de Accidentes vigente otorgado por Duoc UC bajo la Ley 16.744 con cobertura activa hasta fines de enero de 2027 para la totalidad de las 360 horas de práctica profesional."
+
+    # 6. Horas de práctica / Semanas / Duración / Extensión
+    if re.search(r"\b(horas?|semanas?|duraci[oó]n|cu[aá]nto tiempo|extender|posibilidad de extender)\b", p):
+        if tipo_input == "number":
+            return "360"
+        return "360 horas cronológicas requeridas por Duoc UC (equivalente a aprox. 9 semanas a jornada completa). Cuento con total disposición y posibilidad de extender el periodo según las necesidades operacionales del equipo."
+
+    # 7. Formación académica / Carrera / Casa de estudios / Institución / Año
+    if re.search(r"\b(carrera|casa de estudio|instituci[oó]n|universidad|instituto|formaci[oó]n|acad[eé]mica|estudios?|qu[eé] estudias|titulaci[oó]n|a[ñn]o)\b", p):
+        return (
+            "Ingeniería en Infraestructura y Plataformas Tecnológicas, 4to año (cuarto año, 8vo semestre de egreso) en Duoc UC Sede Antonio Varas."
+        )
+
+    # 8. Fecha de inicio / Cuándo puedes comenzar / Disponibilidad
+    if re.search(r"\b(disponibilidad|fecha de inicio|cu[aá]ndo puedes|comenzar|iniciar|partir|incorporar|horario)\b", p):
+        if tipo_input == "radio_boolean":
+            return "si"
+        return "Disponibilidad diurna completa e inmediata (40 a 45 horas semanales de lunes a viernes). Cuento con respaldo institucional de Duoc UC para formalizar y validar el convenio antes del 15 de noviembre, pudiendo comenzar de inmediato o en diciembre/enero según requerimientos de la empresa."
+
+    # 9. Licencia de conducir
+    if re.search(r"\b(licencia|conducir|clase b|veh[ií]culo)\b", p):
+        if tipo_input == "radio_boolean":
+            return "si"
+        return "Sí, cuento con Licencia de Conducir Clase B al día."
+
+    # 10. Motivación por la empresa / ¿Por qué quieres trabajar aquí?
+    if re.search(r"\b(motiva|por qu[eé]|inter[eé]s|postulas|por que te gustar[ií]a)\b", p):
+        empresa_clean = empresa if empresa and "empresa" not in empresa.lower() else "su organización"
+        return (
+            f"Me motiva enormemente realizar mi práctica profesional en {empresa_clean} para aplicar mis competencias "
+            f"técnicas en infraestructura, redes, servidores y ciberseguridad. Cuento con experiencia laboral en soporte corporativo en BDO, "
+            f"alta proactividad, capacidad de resolución de incidentes bajo SLAs y compromiso absoluto con la continuidad operacional."
+        )
+
+    # 11. Experiencia técnica en TI / Soporte / Redes / Servidores / Cloud
+    if re.search(r"\b(experiencia|conocimientos?|redes|servidores?|soporte|infraestructura|linux|cloud|seguridad)\b", p):
+        return (
+            "Experiencia práctica administrando servidores Linux (RHEL, Ubuntu) y Windows Server con Active Directory y GPOs; "
+            "configuración de redes Cisco (OSPF, VLANs, switching); monitoreo con Zabbix y Grafana; soporte TI corporativo en BDO "
+            "resolviendo incidentes N1 a N3 bajo SLAs, y ciberseguridad con herramientas como Wazuh, Suricata y Zeek."
+        )
+
+    # 12. Preguntas booleanas genéricas (Sí / No)
+    if tipo_input == "radio_boolean":
+        if re.search(r"\b(incompatibilidad|impedimento|familiar|conflicto|penales|parientes?)\b", p):
+            return "no"
+        return "si"
+
+    # Fallback general para preguntas abiertas no contempladas
+    return (
+        "Estudiante de último semestre de Ingeniería en Infraestructura y Plataformas Tecnológicas en Duoc UC (vespertino). "
+        "Cuento con 360 horas de práctica respaldadas por Seguro Escolar vigente (Ley 16.744), disponibilidad diurna inmediata y experiencia "
+        "en soporte TI corporativo, redes Cisco y administración de servidores."
+    )
+
+
+def resolver_seleccion_dropdown(opciones: list[str], pregunta_contexto: str = "") -> str:
+    """Determina la mejor opción para un elemento <select>."""
+    p = pregunta_contexto.lower()
+    
+    if any(k in p for k in ["estudio", "nivel", "educaci", "formaci"]):
+        for opt in opciones:
+            o_l = opt.lower()
+            if any(k in o_l for k in ["técnico profesional", "superior en curso", "universitaria en curso", "superior incompleta", "en curso", "universitario"]):
+                return opt
+        for opt in opciones:
+            if "superior" in opt.lower() or "técnico" in opt.lower():
+                return opt
+                
+    if any(k in p for k in ["situaci", "estado de estudio"]):
+        for opt in opciones:
+            if any(k in opt.lower() for k in ["en curso", "estudiante", "cursando", "egresado"]):
+                return opt
+
+    if any(k in p for k in ["regi"]):
+        for opt in opciones:
+            if any(k in opt.lower() for k in ["metropolitana", "santiago"]):
+                return opt
+
+    if any(k in p for k in ["comuna"]):
+        for opt in opciones:
+            if any(k in opt.lower() for k in ["las condes", "santiago", "providencia"]):
+                return opt
+
+    for opt in opciones:
+        if opt.strip().lower() in ["sí", "si"]:
+            return opt
+
+    return opciones[0] if opciones else ""

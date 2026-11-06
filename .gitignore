@@ -1,0 +1,39 @@
+# Variables de entorno y credenciales sensibles
+.env
+*.env
+*.pem
+*.key
+
+# Base de datos y sesiones locales
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+autopostula.db
+
+# Archivos de respaldo locales
+.backups/
+*.bak*
+
+# Python y caché
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+
+# Archivos personales subidos
+uploads/
+*.pdf
+*.docx
+*.pptx
+*.png
+
+# Logs
+*.log
