@@ -61,3 +61,4 @@ Sirve como plantilla para que cualquier alumno (como Carolina) complete sus ante
 ## 6. Competencias Técnicas Específicas
 - **Lenguajes y Herramientas:** Listado claro de lo que domina (ej. Python, SQL, Java, React, Docker, Linux, etc.).
 - **Proyectos de Portafolio:** 1 o 2 líneas explicando un proyecto real desarrollado durante la carrera.
+

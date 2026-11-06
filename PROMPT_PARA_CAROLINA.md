@@ -78,3 +78,4 @@ INSTRUCCIONES PARA EL ASISTENTE:
    - Cuando esté lista, hago clic en [ ▶️ Reanudar Bot ] o en el botón "Postular" del portal.
    - El bot nunca cerrará una pestaña si hubo un error o falta confirmación.
 ```
+

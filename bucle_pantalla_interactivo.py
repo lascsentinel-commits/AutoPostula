@@ -358,7 +358,13 @@ async def inyectar_boton_flotante_control(page):
                 toggleBtn.appendChild(label);
                 toggleBtn.appendChild(timer);
 
-                toggleBtn.addEventListener('click', (e) => {
+                // Hacer que cualquier clic en el contenedor (salvo el botón de cierre) alterne Pausa/Reanudación
+                container.style.cursor = 'pointer';
+                container.addEventListener('click', (e) => {
+                    if (e.target.closest('#autopostula-btn-close')) {
+                        return;
+                    }
+                    e.preventDefault();
                     e.stopPropagation();
                     window.__autopostula_paused = !window.__autopostula_paused;
                     updateWidgetState();
@@ -445,7 +451,7 @@ async def comprobar_pausa_y_parada(page) -> str:
         print("\n⏸️  BOT EN ESTADO PAUSADO por el usuario. Esperando reanudación...")
         hablar("Bot pausado. Esperando que presiones reanudar.")
         while True:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
             st = await page.evaluate('''() => ({
                 stop: window.__autopostula_stop || false,
                 paused: window.__autopostula_paused || false
