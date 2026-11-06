@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  autopostula:
+    build: .
+    container_name: autopostula_bot
+    restart: unless-stopped
+    network_mode: "host"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - AUTOPOSTULA_DB_PATH=/app/data/autopostula.db
+    volumes:
+      - ./data:/app/data
+      - ./perfil_alumno.json:/app/perfil_alumno.json
+      - ./cv.pdf:/app/cv.pdf

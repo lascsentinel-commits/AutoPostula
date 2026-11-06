@@ -5,14 +5,46 @@ Sistema de postulación asistida y automática a ofertas de **Prácticas Profesi
 A diferencia de los bots headless tradicionales que son bloqueados por Cloudflare o llenan formularios a ciegas, **AutoPostula interactúa sobre tu navegador real (Brave / Chromium vía CDP)**:
 - 👁️ **Visualización en Vivo:** Ves exactamente cada pestaña que se abre y cada respuesta que se ingresa.
 - 🤖 **IA Contextual (Gemini 3.5 Flash-Lite):** Responde preguntas técnicas de reclutadores, motivación de empresa, horas y disponibilidad usando el perfil auténtico del alumno.
-- ⏱️ **Widget Flotante de Control (Pausa de 30s):** Contador regresivo en vivo con botones en la esquina inferior izquierda:
+- ⏱️ **Ventanita Flotante de Control:** Pastilla y panel modal desplegable en la esquina inferior izquierda:
   - `[ ⏸️ Pausar Bot ]` / `[ ▶️ Reanudar Bot ]` para revisar o editar con calma.
-  - `[ ✕ ]` para detener el bot inmediatamente.
+  - Selectores dinámicos de tiempo `[ 15s ]`, `[ 30s ]`, `[ 60s ]`, `[ 2m ]`.
+  - `[ 🚀 Enviar Postulación Ahora ]` para omitir la espera restante si ya revisaste.
+  - `[ 🛑 Detener Bot por Completo ]` para detener el bucle con total seguridad.
 - 🛡️ **Verificación Estricta:** Congelamiento de 5 segundos ante mensajes de éxito confirmados y **prohibición de cerrar pestañas** si no hay confirmación explícita.
 
 ---
 
-## 🚀 Requisitos e Instalación
+## 🪟 Ejecución en Windows 11
+
+AutoPostula funciona de forma nativa en **Windows 11**:
+
+### Opción A: 1-Clic con Script por Lotes (Recomendado)
+1. Clona el repositorio en Windows:
+   ```cmd
+   git clone https://github.com/lascsentinel-commits/AutoPostula.git
+   cd AutoPostula
+   ```
+2. Haz doble clic sobre **`iniciar_windows.bat`** (o ejecuta `.\iniciar_windows.ps1` en PowerShell).
+3. El lanzador configurará el entorno virtual `venv`, instalará dependencias, levantará Brave o Chrome en el puerto 9222 y arrancará el bot.
+
+### Opción B: WSL2 (Ubuntu en Windows 11)
+Si prefieres Linux dentro de Windows 11, puedes usar WSL2 con WSLg:
+```bash
+wsl
+cd AutoPostula
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python3 bucle_pantalla_interactivo.py
+```
+
+### Opción C: Contenedor Docker
+```bash
+docker compose up --build
+```
+
+---
+
+## 🐧 Ejecución en Linux
 
 ### 1. Clonar el Repositorio
 ```bash

@@ -27,21 +27,31 @@ import time
 from datetime import datetime
 
 # Limpiar wrapper que causa conflicto con python3.13 en kali
+from pathlib import Path
+import shutil
+
 os.environ.pop("PLAYWRIGHT_NODEJS_PATH", None)
 
 from playwright.async_api import async_playwright
 
-sys.path.insert(0, "/home/dhamit/Documentos/MYCreIAtedAPPs/AutoPostula")
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE_DIR))
+
 import database
 from modules.smart_qa_solver import (
     resolver_pregunta_reclutador,
     resolver_preguntas_con_gemini_en_lote,
     resolver_seleccion_dropdown,
     limpiar_texto_pregunta,
+    obtener_perfil_activo,
 )
 
-DB_PATH = "/home/dhamit/Documentos/MYCreIAtedAPPs/AutoPostula/data/autopostula.db"
-CV_MASTER_PDF = "/home/dhamit/Documentos/CV-2026-01/1_CV_Dhani_Amit_Elgueta_Ríos_U-26.pdf"
+DB_PATH = os.environ.get("AUTOPOSTULA_DB_PATH", str(BASE_DIR / "data" / "autopostula.db"))
+CV_MASTER_PDF = os.environ.get("CV_MASTER_PDF", "/home/dhamit/Documentos/CV-2026-01/1_CV_Dhani_Amit_Elgueta_Ríos_U-26.pdf")
+if not os.path.exists(CV_MASTER_PDF):
+    local_cv = BASE_DIR / "cv.pdf"
+    if local_cv.exists():
+        CV_MASTER_PDF = str(local_cv)
 
 # Comunas y referencias válidas para la Región Metropolitana
 COMUNAS_RM = [
@@ -70,31 +80,63 @@ GLOBAL_CON_VOZ = True
 GLOBAL_ENFOCAR = True
 
 def hablar(texto: str, final: bool = False):
-    """Ejecuta Di para narrar en tiempo real si está habilitado."""
+    """Ejecuta Di para narrar en tiempo real si está habilitado; soporta Linux y Windows (SAPI)."""
     if not GLOBAL_CON_VOZ:
         return
-    cmd = ["/home/dhamit/.local/bin/Di"]
-    if final:
-        cmd.append("--final")
-    try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, text=True)
-        proc.communicate(input=texto)
-    except Exception as e:
-        print(f"Error Di: {e}", file=sys.stderr)
+    di_path = "/home/dhamit/.local/bin/Di"
+    if os.path.exists(di_path):
+        cmd = [di_path]
+        if final:
+            cmd.append("--final")
+        try:
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, text=True)
+            proc.communicate(input=texto)
+            return
+        except Exception as e:
+            print(f"Error Di: {e}", file=sys.stderr)
+    elif shutil.which("Di"):
+        cmd = ["Di"]
+        if final:
+            cmd.append("--final")
+        try:
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, text=True)
+            proc.communicate(input=texto)
+            return
+        except Exception as e:
+            print(f"Error Di: {e}", file=sys.stderr)
+
+    # Si estamos en Windows, usar síntesis nativa de voz en español (SAPI)
+    if sys.platform == "win32":
+        try:
+            clean_txt = texto.replace('"', '').replace("'", "").replace("`", "")
+            ps_cmd = f'Add-Type -AssemblyName System.Speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Speak("{clean_txt}")'
+            subprocess.Popen(["powershell", "-NoProfile", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except Exception:
+            pass
+
+    # Fallback si no hay motor de voz activo
+    print(f"📢 [VOZ]: {texto}")
 
 
 def traer_brave_al_frente():
-    """Enfoca la ventana de Brave en la pantalla de X11 si está habilitado."""
+    """Enfoca la ventana del navegador en la pantalla (Linux X11 o Windows)."""
     if not GLOBAL_ENFOCAR:
         return
-    try:
-        subprocess.run(
-            ["wmctrl", "-a", "Brave"],
-            env={"DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": os.environ.get("XAUTHORITY", "/home/dhamit/.Xauthority")},
-            check=False
-        )
-    except Exception:
-        pass
+    if sys.platform != "win32":
+        try:
+            subprocess.run(
+                ["wmctrl", "-a", "Brave"],
+                env={"DISPLAY": os.environ.get("DISPLAY", ":0"), "XAUTHORITY": os.environ.get("XAUTHORITY", "/home/dhamit/.Xauthority")},
+                check=False
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            subprocess.run(["powershell", "-NoProfile", "-Command", "(New-Object -ComObject WScript.Shell).AppActivate('Brave')"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
 
 def es_region_metropolitana(ubicacion: str, titulo: str, descripcion: str = "") -> bool:
@@ -238,181 +280,239 @@ FRASES_CERRADA = [
 
 
 async def inyectar_boton_flotante_control(page):
-    """Inyecta de forma permanente y autocurativa el widget flotante en la esquina inferior izquierda.
+    """Inyecta el panel interactivo desplegable (ventanita de control) en la esquina inferior izquierda.
     Contiene:
-    - Botón interactivo de Pausar / Reanudar con timer regresivo en vivo.
-    - Botón de cierre con X roja para detener el bot por completo en cualquier instante.
+    - Pastilla flotante siempre visible con estado y temporizador.
+    - Ventanita modal desplegable al hacer clic, con:
+      * Botón interactivo de Pausar / Reanudar.
+      * Selector de tiempo para cambiar dinámicamente los segundos de revisión (15s, 30s, 60s, 2m).
+      * Botón 'Enviar Postulación Ahora' para omitir la espera si ya se revisó.
+      * Botón de cierre y detención total del bot.
     """
     js_inject = """
     (() => {
         window.__autopostula_paused = window.__autopostula_paused || false;
         window.__autopostula_stop = window.__autopostula_stop || false;
+        window.__autopostula_skip_wait = false;
         window.__autopostula_timer_text = window.__autopostula_timer_text || "30s";
+        window.__autopostula_segundos_revision = window.__autopostula_segundos_revision || 30;
+        window.__autopostula_panel_open = window.__autopostula_panel_open !== undefined ? window.__autopostula_panel_open : false;
 
         function updateWidgetState() {
-            const container = document.getElementById('autopostula-floating-control');
-            if (!container) return;
-            const icon = document.getElementById('autopostula-icon');
-            const label = document.getElementById('autopostula-text');
-            const timer = document.getElementById('autopostula-timer');
+            const pill = document.getElementById('autopostula-floating-pill');
+            const modal = document.getElementById('autopostula-floating-modal');
+            if (!pill) return;
+
+            const pillIcon = document.getElementById('autopostula-pill-icon');
+            const pillLabel = document.getElementById('autopostula-pill-label');
+            const pillTimer = document.getElementById('autopostula-pill-timer');
+
+            const modalToggleBtn = document.getElementById('autopostula-modal-toggle');
+            const modalTimer = document.getElementById('autopostula-modal-timer');
 
             if (window.__autopostula_stop) {
-                container.style.borderColor = '#ef4444';
-                container.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.7), 0 0 20px rgba(239, 68, 68, 0.7)';
-                if (label) label.innerText = 'Cerrando bot...';
-                if (timer) {
-                    timer.innerText = 'STOP';
-                    timer.style.background = '#dc2626';
-                }
+                pill.style.borderColor = '#ef4444';
+                if (pillLabel) pillLabel.innerText = 'Cerrando bot...';
+                if (pillTimer) { pillTimer.innerText = 'STOP'; pillTimer.style.background = '#dc2626'; }
+                if (modal) modal.style.display = 'none';
                 return;
             }
 
             if (window.__autopostula_paused) {
-                container.style.borderColor = '#f59e0b';
-                container.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.7), 0 0 18px rgba(245, 158, 11, 0.6)';
-                if (icon) icon.innerText = '▶️';
-                if (label) label.innerText = 'Reanudar Bot';
-                if (timer) {
-                    timer.innerText = 'PAUSADO';
-                    timer.style.background = '#d97706';
+                pill.style.borderColor = '#f59e0b';
+                pill.style.boxShadow = '0 0 25px rgba(245, 158, 11, 0.9)';
+                if (pillIcon) pillIcon.innerText = '▶️';
+                if (pillLabel) pillLabel.innerText = 'Pausado';
+                if (pillTimer) { pillTimer.innerText = 'PAUSA'; pillTimer.style.background = '#d97706'; }
+
+                if (modalToggleBtn) {
+                    modalToggleBtn.innerText = '▶️ REANUDAR BOT';
+                    modalToggleBtn.style.background = '#f59e0b';
                 }
             } else {
-                container.style.borderColor = '#38bdf8';
-                container.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.7), 0 0 15px rgba(56, 189, 248, 0.5)';
-                if (icon) icon.innerText = '⏸️';
-                if (label) label.innerText = 'Pausar Bot';
-                if (timer) {
-                    timer.innerText = window.__autopostula_timer_text || '30s';
-                    timer.style.background = '#0284c7';
+                pill.style.borderColor = '#38bdf8';
+                pill.style.boxShadow = '0 0 25px rgba(56, 189, 248, 0.85)';
+                if (pillIcon) pillIcon.innerText = '⏸️';
+                if (pillLabel) pillLabel.innerText = 'En Marcha';
+                if (pillTimer) { pillTimer.innerText = window.__autopostula_timer_text || '30s'; pillTimer.style.background = '#0284c7'; }
+
+                if (modalToggleBtn) {
+                    modalToggleBtn.innerText = '⏸️ PAUSAR BOT';
+                    modalToggleBtn.style.background = '#0284c7';
                 }
+            }
+
+            if (modal) {
+                modal.style.display = window.__autopostula_panel_open ? 'flex' : 'none';
             }
         }
 
         function createOrAttachWidget() {
-            let container = document.getElementById('autopostula-floating-control');
             const targetParent = document.documentElement || document.body;
             if (!targetParent) return;
 
-            if (!container || container.parentElement !== targetParent) {
-                if (container && container.remove) container.remove();
+            let root = document.getElementById('autopostula-root-container');
+            if (!root || root.parentElement !== targetParent) {
+                if (root && root.remove) root.remove();
 
-                container = document.createElement('div');
-                container.id = 'autopostula-floating-control';
-                container.style.cssText = `
+                root = document.createElement('div');
+                root.id = 'autopostula-root-container';
+                root.style.cssText = `
                     position: fixed !important;
-                    bottom: 40px !important;
-                    left: 40px !important;
+                    bottom: 35px !important;
+                    left: 35px !important;
                     z-index: 2147483647 !important;
                     display: flex !important;
-                    align-items: center !important;
+                    flex-direction: column !important;
+                    align-items: flex-start !important;
                     gap: 12px !important;
-                    background: rgba(10, 15, 30, 0.98) !important;
-                    border: 3px solid #38bdf8 !important;
-                    box-shadow: 0 0 30px rgba(56, 189, 248, 0.85), 0 10px 30px rgba(0, 0, 0, 0.9) !important;
-                    border-radius: 9999px !important;
-                    padding: 10px 18px 10px 22px !important;
-                    color: #ffffff !important;
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-                    font-size: 15px !important;
-                    font-weight: 800 !important;
                     user-select: none !important;
-                    backdrop-filter: blur(16px) !important;
-                    pointer-events: auto !important;
-                    opacity: 1 !important;
-                    visibility: visible !important;
-                    transition: border-color 0.2s, box-shadow 0.2s !important;
                 `;
 
-                const toggleBtn = document.createElement('div');
-                toggleBtn.id = 'autopostula-btn-toggle';
-                toggleBtn.style.cssText = `
+                // 1. VENTANITA MODAL FLOTANTE (ARRIBA DE LA PASTILLA)
+                const modal = document.createElement('div');
+                modal.id = 'autopostula-floating-modal';
+                modal.style.cssText = `
+                    display: ${window.__autopostula_panel_open ? 'flex' : 'none'} !important;
+                    flex-direction: column !important;
+                    gap: 12px !important;
+                    width: 320px !important;
+                    background: rgba(13, 17, 28, 0.98) !important;
+                    border: 2px solid #38bdf8 !important;
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9), 0 0 30px rgba(56, 189, 248, 0.4) !important;
+                    border-radius: 16px !important;
+                    padding: 16px !important;
+                    color: #ffffff !important;
+                    backdrop-filter: blur(20px) !important;
+                `;
+
+                modal.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.15); padding-bottom:8px;">
+                        <div style="font-size:14px; font-weight:800; color:#38bdf8; display:flex; align-items:center; gap:6px;">
+                            <span>⚙️ Panel AutoPostula</span>
+                        </div>
+                        <button id="autopostula-modal-close-window" style="background:transparent; border:none; color:#94a3b8; font-size:16px; font-weight:bold; cursor:pointer;">✕</button>
+                    </div>
+
+                    <div id="autopostula-modal-timer" style="font-size:13px; font-weight:700; color:#cbd5e1; text-align:center; padding:4px 0;">
+                        ${window.__autopostula_timer_text} restantes
+                    </div>
+
+                    <!-- Botón Pausa / Reanudar -->
+                    <button id="autopostula-modal-toggle" style="background:#0284c7; border:none; border-radius:10px; color:#ffffff; font-size:14px; font-weight:800; padding:10px; cursor:pointer; transition:all 0.15s ease;">
+                        ${window.__autopostula_paused ? '▶️ REANUDAR BOT' : '⏸️ PAUSAR BOT'}
+                    </button>
+
+                    <!-- Selector de tiempo de espera -->
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <span style="font-size:12px; font-weight:700; color:#94a3b8;">⏱️ Tiempo de espera antes de enviar:</span>
+                        <div style="display:flex; gap:6px; justify-content:space-between;">
+                            <button class="autopostula-time-preset" data-seconds="15" style="flex:1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:8px; color:#fff; font-size:12px; font-weight:700; padding:5px 0; cursor:pointer;">15s</button>
+                            <button class="autopostula-time-preset" data-seconds="30" style="flex:1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:8px; color:#fff; font-size:12px; font-weight:700; padding:5px 0; cursor:pointer;">30s</button>
+                            <button class="autopostula-time-preset" data-seconds="60" style="flex:1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:8px; color:#fff; font-size:12px; font-weight:700; padding:5px 0; cursor:pointer;">60s</button>
+                            <button class="autopostula-time-preset" data-seconds="120" style="flex:1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:8px; color:#fff; font-size:12px; font-weight:700; padding:5px 0; cursor:pointer;">2m</button>
+                        </div>
+                    </div>
+
+                    <!-- Botón Continuar / Enviar Ahora -->
+                    <button id="autopostula-modal-skip" style="background:#10b981; border:none; border-radius:10px; color:#ffffff; font-size:13px; font-weight:800; padding:9px; cursor:pointer;">
+                        🚀 Enviar Postulación Ahora
+                    </button>
+
+                    <!-- Botón Detener Bot -->
+                    <button id="autopostula-modal-stop-bot" style="background:transparent; border:1px solid #ef4444; border-radius:10px; color:#ef4444; font-size:12px; font-weight:700; padding:7px; cursor:pointer;">
+                        🛑 Detener Bot por Completo
+                    </button>
+                `;
+
+                // 2. PASTILLA FLOTANTE PRINCIPAL
+                const pill = document.createElement('div');
+                pill.id = 'autopostula-floating-pill';
+                pill.style.cssText = `
                     display: flex !important;
                     align-items: center !important;
-                    gap: 8px !important;
-                    cursor: pointer !important;
-                `;
-
-                const icon = document.createElement('span');
-                icon.id = 'autopostula-icon';
-                icon.innerText = window.__autopostula_paused ? '▶️' : '⏸️';
-                icon.style.fontSize = '16px';
-
-                const label = document.createElement('span');
-                label.id = 'autopostula-text';
-                label.innerText = window.__autopostula_paused ? 'Reanudar Bot' : 'Pausar Bot';
-
-                const timer = document.createElement('span');
-                timer.id = 'autopostula-timer';
-                timer.innerText = window.__autopostula_paused ? 'PAUSADO' : window.__autopostula_timer_text;
-                timer.style.cssText = `
-                    background: ${window.__autopostula_paused ? '#d97706' : '#0284c7'} !important;
-                    color: #ffffff !important;
-                    padding: 2px 9px !important;
+                    gap: 10px !important;
+                    background: rgba(13, 17, 28, 0.98) !important;
+                    border: 3px solid #38bdf8 !important;
+                    box-shadow: 0 0 25px rgba(56, 189, 248, 0.85), 0 8px 24px rgba(0, 0, 0, 0.8) !important;
                     border-radius: 9999px !important;
-                    font-size: 12px !important;
-                    font-weight: 800 !important;
-                    margin-left: 2px !important;
-                `;
-
-                toggleBtn.appendChild(icon);
-                toggleBtn.appendChild(label);
-                toggleBtn.appendChild(timer);
-
-                // Hacer que cualquier clic en el contenedor (salvo el botón de cierre) alterne Pausa/Reanudación
-                container.style.cursor = 'pointer';
-                container.addEventListener('click', (e) => {
-                    if (e.target.closest('#autopostula-btn-close')) {
-                        return;
-                    }
-                    e.preventDefault();
-                    e.stopPropagation();
-                    window.__autopostula_paused = !window.__autopostula_paused;
-                    updateWidgetState();
-                });
-
-                const divider = document.createElement('div');
-                divider.style.cssText = `
-                    width: 1px !important;
-                    height: 22px !important;
-                    background: rgba(255, 255, 255, 0.25) !important;
-                    margin: 0 4px !important;
-                `;
-
-                const closeBtn = document.createElement('button');
-                closeBtn.id = 'autopostula-btn-close';
-                closeBtn.title = 'Cerrar y detener bot por completo';
-                closeBtn.innerHTML = '✕';
-                closeBtn.style.cssText = `
-                    background: #ef4444 !important;
-                    border: none !important;
+                    padding: 10px 18px !important;
                     color: #ffffff !important;
-                    width: 28px !important;
-                    height: 28px !important;
-                    border-radius: 50% !important;
-                    font-size: 14px !important;
-                    font-weight: 900 !important;
                     cursor: pointer !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.6) !important;
-                    line-height: 1 !important;
-                    transition: transform 0.15s ease, background 0.15s ease !important;
+                    font-size: 14px !important;
+                    font-weight: 800 !important;
+                    backdrop-filter: blur(16px) !important;
+                    transition: transform 0.15s ease, box-shadow 0.2s ease !important;
                 `;
-                closeBtn.onmouseenter = () => { closeBtn.style.background = '#dc2626'; closeBtn.style.transform = 'scale(1.1)'; };
-                closeBtn.onmouseleave = () => { closeBtn.style.background = '#ef4444'; closeBtn.style.transform = 'scale(1)'; };
 
-                closeBtn.addEventListener('click', (e) => {
+                pill.innerHTML = `
+                    <span id="autopostula-pill-icon" style="font-size:16px;">${window.__autopostula_paused ? '▶️' : '⏸️'}</span>
+                    <span id="autopostula-pill-label">${window.__autopostula_paused ? 'Pausado' : 'Panel Bot'}</span>
+                    <span id="autopostula-pill-timer" style="background:#0284c7; color:#fff; padding:2px 8px; border-radius:9999px; font-size:12px; font-weight:800;">${window.__autopostula_timer_text}</span>
+                    <span style="font-size:14px; opacity:0.8; margin-left:4px;">⚙️</span>
+                `;
+
+                pill.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    window.__autopostula_stop = true;
+                    window.__autopostula_panel_open = !window.__autopostula_panel_open;
                     updateWidgetState();
                 });
 
-                container.appendChild(toggleBtn);
-                container.appendChild(divider);
-                container.appendChild(closeBtn);
+                root.appendChild(modal);
+                root.appendChild(pill);
+                targetParent.appendChild(root);
 
-                targetParent.appendChild(container);
+                // Listeners de la ventanita modal
+                const closeWindowBtn = modal.querySelector('#autopostula-modal-close-window');
+                if (closeWindowBtn) {
+                    closeWindowBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        window.__autopostula_panel_open = false;
+                        updateWidgetState();
+                    });
+                }
+
+                const toggleBtn = modal.querySelector('#autopostula-modal-toggle');
+                if (toggleBtn) {
+                    toggleBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        window.__autopostula_paused = !window.__autopostula_paused;
+                        updateWidgetState();
+                    });
+                }
+
+                const skipBtn = modal.querySelector('#autopostula-modal-skip');
+                if (skipBtn) {
+                    skipBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        window.__autopostula_skip_wait = true;
+                        updateWidgetState();
+                    });
+                }
+
+                const stopBtn = modal.querySelector('#autopostula-modal-stop-bot');
+                if (stopBtn) {
+                    stopBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        window.__autopostula_stop = true;
+                        updateWidgetState();
+                    });
+                }
+
+                modal.querySelectorAll('.autopostula-time-preset').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const s = parseInt(btn.getAttribute('data-seconds'), 10);
+                        window.__autopostula_segundos_revision = s;
+                        modal.querySelectorAll('.autopostula-time-preset').forEach(b => {
+                            b.style.background = 'rgba(255,255,255,0.08)';
+                            b.style.borderColor = 'rgba(255,255,255,0.2)';
+                        });
+                        btn.style.background = '#0284c7';
+                        btn.style.borderColor = '#38bdf8';
+                    });
+                });
             }
 
             updateWidgetState();
@@ -757,7 +857,51 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
             q_num = item["num"]
             q_text = item["pregunta"]
 
-            resp = respuestas_llm.get(idx) or resolver_pregunta_reclutador(q_text, empresa, tipo_input="textarea")
+            # Comprobar si el campo exige estrictamente números o tiene longitud corta
+            info_campo = await ta.evaluate(r'''el => {
+                const isNumType = el.type === 'number' || el.inputMode === 'numeric' || (el.getAttribute('pattern') && el.getAttribute('pattern').includes('[0-9]'));
+                const group = el.closest('.input-style') || el.closest('div[id^="pregunta_"]') || el.closest('.form-group') || el.closest('.mb-3') || el.parentElement;
+                const gText = ((group ? group.innerText : "") + " " + (el.getAttribute('placeholder') || "")).toLowerCase();
+                const hasNumNotice = gText.includes('solo acepta números') || gText.includes('solo números') || gText.includes('numérico') || gText.includes('solo dígitos');
+                const maxLen = parseInt(el.getAttribute('maxlength') || '9999', 10);
+                return {
+                    esNumero: isNumType || hasNumNotice || (maxLen <= 11),
+                    maxLen: maxLen,
+                    tagName: el.tagName.toLowerCase()
+                };
+            }''')
+
+            es_numero = info_campo.get("esNumero", False)
+            max_len = info_campo.get("maxLen", 9999)
+
+            resp = respuestas_llm.get(idx) or resolver_pregunta_reclutador(q_text, empresa, tipo_input="number" if es_numero else "textarea")
+
+            # 1. Regla de Oro: Prohibición absoluta de N/A en motivación o preguntas abiertas
+            p_lower = q_text.lower()
+            if any(m in p_lower for m in ["motiva", "interés", "interes", "por qué", "por que", "expectativa", "desafío", "desafio"]):
+                if not resp or resp.strip().upper() in ["N/A", "NO APLICA", "NINGUNA", "NA", "NO", ""] or len(resp.strip()) < 15:
+                    resp = f"Me motiva profundamente realizar mi práctica profesional en {empresa} para aportar con proactividad, disciplina y sólidos conocimientos técnicos en infraestructura, redes y continuidad operacional. Busco aprender de los desafíos reales del equipo, resolver incidentes y agregar valor tangible desde el primer día."
+
+            # 2. Manejo estricto de campos numéricos (ej. WOM Pregunta 2: "¿Cuántas horas de práctica debes realizar?")
+            if es_numero:
+                perf = obtener_perfil_activo()
+                horas_default = str(perf.get("condiciones_practica", {}).get("horas_cronologicas_requeridas", "360")) if perf else "360"
+                renta_default = str(perf.get("condiciones_legales_y_renta", {}).get("pretension_renta", "0")) if perf else "0"
+                tel_default = re.sub(r'\D', '', perf.get("datos_personales", {}).get("telefono", "56948508528")) if perf else "56948508528"
+
+                if "hora" in p_lower:
+                    resp = horas_default
+                elif any(k in p_lower for k in ["renta", "pretension", "pretensión", "sueldo", "remuneracion", "remuneración", "monto", "esperada"]):
+                    resp = renta_default
+                elif any(k in p_lower for k in ["telefono", "teléfono", "celular", "fono"]):
+                    resp = tel_default
+                else:
+                    solo_digitos = re.sub(r'\D', '', resp)
+                    resp = solo_digitos if solo_digitos else "0"
+
+            # 3. Ajustar si el campo tiene límite estricto de caracteres (maxlength)
+            if max_len and max_len < len(resp):
+                resp = resp[:max_len]
 
             # Tipeo nativo de Playwright sobre el campo para que aparezca en pantalla de inmediato
             await ta.scroll_into_view_if_needed()
@@ -962,6 +1106,8 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
             return {
                 stop: window.__autopostula_stop || false,
                 paused: window.__autopostula_paused || false,
+                skipWait: window.__autopostula_skip_wait || false,
+                customSeconds: window.__autopostula_segundos_revision || null,
                 clickedManual: window.__usuario_envio_postulacion || false,
                 success: document.body.innerText.toLowerCase().includes('éxito') || document.body.innerText.toLowerCase().includes('postulado')
             };
@@ -976,11 +1122,27 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
             print(f"\n👆 ¡Detectado clic manual del usuario o confirmación anticipada!")
             break
 
+        if estado_control.get("skipWait"):
+            print(f"\n🚀 ¡Pulsado 'Enviar Postulación Ahora' desde la ventanita! Omitiendo espera restante...")
+            break
+
+        nuevo_seg = estado_control.get("customSeconds")
+        if nuevo_seg and nuevo_seg != segundos_revision:
+            segundos_revision = nuevo_seg
+            print(f"\n⚙️  Tiempo de revisión actualizado dinámicamente a {segundos_revision}s.")
+
         if estado_control.get("paused"):
             if not esta_pausado_prev:
                 print(f"\n⏸️  BOT PAUSADO por el usuario desde el botón flotante.")
                 hablar("Bot pausado. Tómate el tiempo necesario para revisar o editar.")
                 esta_pausado_prev = True
+                await page.evaluate('''() => {
+                    window.__autopostula_timer_text = 'PAUSA';
+                    const pt = document.getElementById('autopostula-pill-timer');
+                    if (pt) { pt.innerText = 'PAUSA'; pt.style.background = '#d97706'; }
+                    const mt = document.getElementById('autopostula-modal-timer');
+                    if (mt) { mt.innerText = 'PAUSA'; mt.style.background = '#d97706'; }
+                }''')
             await asyncio.sleep(0.5)
             continue
         else:
@@ -988,16 +1150,26 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
                 print(f"\n▶️  BOT REANUDADO por el usuario.")
                 hablar("Bot reanudado.")
                 esta_pausado_prev = False
+                await page.evaluate('''() => {
+                    const pt = document.getElementById('autopostula-pill-timer');
+                    if (pt) { pt.style.background = '#0284c7'; }
+                    const mt = document.getElementById('autopostula-modal-timer');
+                    if (mt) { mt.style.background = '#0284c7'; }
+                }''')
 
-            restante = int(segundos_revision - tiempo_transcurrido)
-            # Actualizar timer en botón flotante
+            restante = max(0, int(segundos_revision - tiempo_transcurrido))
+            # Actualizar timer en botón flotante y ventanita
             await page.evaluate(f'''() => {{
                 window.__autopostula_timer_text = '{restante}s';
+                const pt = document.getElementById('autopostula-pill-timer');
+                if (pt) pt.innerText = '{restante}s';
+                const mt = document.getElementById('autopostula-modal-timer');
+                if (mt) mt.innerText = '{restante}s';
                 const t = document.getElementById('autopostula-timer');
                 if (t) t.innerText = '{restante}s';
             }}''')
 
-            print(f"\r⏱️  Revisión: {restante:02d}s restantes | [⏸️ Pausar | ❌ Cerrar en esquina inferior izquierda]...", end="", flush=True)
+            print(f"\r⏱️  Revisión: {restante:02d}s restantes | [⏸️ Pausar | ⚙️ Ventanita | ❌ Cerrar]...", end="", flush=True)
             await asyncio.sleep(0.5)
             tiempo_transcurrido += 0.5
 

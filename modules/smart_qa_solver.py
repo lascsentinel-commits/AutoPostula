@@ -75,6 +75,84 @@ REGLAS OBLIGATORIAS:
 """
 
 
+def obtener_perfil_activo() -> dict:
+    """Carga perfil_alumno.json de la raíz del proyecto si existe."""
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    p_path = os.path.join(root_dir, "perfil_alumno.json")
+    if os.path.exists(p_path):
+        try:
+            with open(p_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict) and "datos_personales" in data:
+                    return data
+        except Exception as e:
+            print(f"Aviso al cargar perfil_alumno.json: {e}")
+    return {}
+
+
+def obtener_system_prompt() -> str:
+    """Devuelve el system prompt adaptado al alumno configurado en perfil_alumno.json o Dhani por defecto."""
+    p = obtener_perfil_activo()
+    if not p:
+        return SYSTEM_PROMPT_DHANI
+
+    dp = p.get("datos_personales", {})
+    sa = p.get("situacion_academica", {})
+    cp = p.get("condiciones_practica", {})
+    clr = p.get("condiciones_legales_y_renta", {})
+    pc = p.get("perfil_profesional_y_competencias", {})
+    mg = p.get("motivacion_general", {})
+
+    nombre = dp.get("nombre_completo", "Candidato")
+    tel = dp.get("telefono", "")
+    mail = dp.get("correo_contacto", "")
+    comuna = dp.get("comuna_residencia", "Región Metropolitana")
+    licencia = dp.get("licencia_conducir", "No cuenta")
+
+    carrera = sa.get("carrera", "Técnica / Ingeniería")
+    institucion = sa.get("institucion", "Duoc UC")
+    sede = sa.get("sede", "")
+    año = sa.get("año_cursada", "4to año")
+    semestre = sa.get("semestre_actual", "Último semestre")
+    jornada = sa.get("jornada_estudio", "Vespertino")
+
+    horas = cp.get("horas_cronologicas_requeridas", 360)
+    seguro = "CUMPLE cabalmente (Ley 16.744)" if cp.get("seguro_escolar_ley_16744", True) else "En trámite"
+    carta = "SÍ, disponible para entrega inmediata" if cp.get("carta_autorizacion_practica", True) else "En trámite"
+    dispo_jornada = cp.get("jornada_disponible", "Jornada completa diurna")
+
+    renta = clr.get("pretension_renta", 0)
+    inclusion = clr.get("comentario_inclusion", "No requiere ningún ajuste adicional.")
+
+    stack = pc.get("stack_tecnologico_clave", "")
+    pitch = mg.get("pitch_motivacional", "")
+
+    return f"""Eres el redactor y asistente de postulación oficial para {nombre}.
+Tu tarea es responder las preguntas de los formularios de postulación laboral técnica en Chile de manera impecable, directa, concisa y persuasiva, usando exclusivamente los datos reales del candidato.
+
+PERFIL Y ANTECEDENTES REALES DE {nombre.upper()}:
+- Nombre: {nombre} | Teléfono: {tel} | Correo: {mail}
+- Residencia: {comuna} (con total disponibilidad de traslado diurno en la RM).
+- Carrera: {carrera} en {institucion} {sede} (jornada {jornada}, {año} / {semestre}).
+- Año que Cursas: {año} ({semestre}). Cuando cualquier pregunta mencione año, carrera o situación académica, es OBLIGATORIO indicar explícitamente "{año}".
+- Horario y Disponibilidad: {dispo_jornada}.
+- Horas de Práctica: {horas} horas cronológicas requeridas por {institucion}.
+- Seguro Escolar: {seguro}.
+- Carta de Autorización de Práctica: {carta}.
+- Renta / Asignación: ${renta} (Acorde a la asignación que tenga contemplada la empresa para alumnos en práctica). Si el campo pide exclusivamente un número entero, responde 0.
+- Ley de Inclusión (21.015): {inclusion}
+- Competencias Técnicas Clave: {stack}
+- Motivación: {pitch}
+
+REGLAS OBLIGATORIAS:
+1. Responde de forma DIRECTA, en primera persona ("Sí, cuento con...", "Tengo total disponibilidad...", "Espero...").
+2. No te desvíes de la pregunta específica.
+3. Devuelve ÚNICAMENTE el texto que debe ir escrito en el formulario, sin comillas adicionales.
+4. PROHIBICIÓN ESTRICTA DE "N/A" O "NO APLICA": Bajo NINGUNA circunstancia respondas "N/A", "No aplica", "Ninguna" o dejes vacío cuando pregunten por motivación, qué te motiva a postular a la empresa, expectativas o desafíos. Siempre debes redactar una respuesta formal, elocuente y motivada en primera persona.
+"""
+
+
+
 def resolver_preguntas_con_gemini_en_lote(preguntas: list[dict], empresa: str = "la empresa", cargo: str = "Práctica TI") -> dict[int, str]:
     """Resuelve en una sola llamada a Gemini 2.5 Flash / 3.5 Flash todas las preguntas de un formulario en lote."""
     if not preguntas:
@@ -94,7 +172,7 @@ def resolver_preguntas_con_gemini_en_lote(preguntas: list[dict], empresa: str = 
     )
 
     config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT_DHANI,
+        system_instruction=obtener_system_prompt(),
         temperature=0.2,
         response_mime_type="application/json"
     )
@@ -139,7 +217,7 @@ def resolver_pregunta_reclutador(pregunta_raw: str, empresa: str = "la empresa",
         try:
             client = genai.Client(api_key=GEMINI_API_KEY)
             config = types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT_DHANI,
+                system_instruction=obtener_system_prompt(),
                 temperature=0.2,
                 max_output_tokens=300
             )
@@ -165,15 +243,33 @@ def resolver_pregunta_reclutador_fallback(pregunta_raw: str, empresa: str = "la 
     limpia = limpiar_texto_pregunta(pregunta_raw)
     p = limpia.lower()
 
+    perf = obtener_perfil_activo()
+    dp = perf.get("datos_personales", {}) if perf else {}
+    sa = perf.get("situacion_academica", {}) if perf else {}
+    cp = perf.get("condiciones_practica", {}) if perf else {}
+    clr = perf.get("condiciones_legales_y_renta", {}) if perf else {}
+    mg = perf.get("motivacion_general", {}) if perf else {}
+
+    # Datos activos (de perfil_alumno.json si existe, o Dhani por defecto)
+    tel_activo = dp.get("telefono", "+56 9 4850 8528")
+    mail_activo = dp.get("correo_contacto", "correof1553@gmail.com / dh.elgueta@duocuc.cl")
+    comuna_activa = dp.get("comuna_residencia", "Las Condes, Región Metropolitana (con excelente conectividad en metro y locomoción hacia todas las comunas de Santiago)")
+    horas_activas = str(cp.get("horas_cronologicas_requeridas", "360"))
+    carrera_activa = sa.get("carrera", "Ingeniería en Infraestructura y Plataformas Tecnológicas")
+    inst_activa = sa.get("institucion", "Duoc UC")
+    sede_activa = sa.get("sede", "Sede Antonio Varas")
+    año_activo = sa.get("año_cursada", "4to año (cuarto año, 8vo semestre de egreso)")
+    renta_activa = str(clr.get("pretension_renta", "0"))
+
     # 1. Teléfono, celular, correo, contacto
     if re.search(r"\b(tel[eé]fono|celular|correo|email|e-mail|contacto|whatsapp|datos de contacto)\b", p):
-        return "+56 9 4850 8528 | correof1553@gmail.com / dh.elgueta@duocuc.cl"
+        return f"{tel_activo} | {mail_activo}"
 
     # 2. Comuna de residencia / Dónde vives
     if re.search(r"\b(comuna|residencia|vives|d[oó]nde vives|domicilio|sector de residencia)\b", p):
         if tipo_input == "radio_boolean":
             return "si"
-        return "Las Condes, Región Metropolitana (con excelente conectividad en metro y locomoción hacia todas las comunas de Santiago)."
+        return f"{comuna_activa}."
 
     # 3. Ley de Inclusión / Ajustes razonables / Apoyos
     if re.search(r"\b(inclusi[oó]n|ajuste|apoyo razonable|discapacidad|adaptaci[oó]n)\b", p):
@@ -184,26 +280,24 @@ def resolver_pregunta_reclutador_fallback(pregunta_raw: str, empresa: str = "la 
     # 4. Pretensión de renta / Asignación económica / Sueldo / Bonificación
     if re.search(r"\b(renta|sueldo|pretensi[oó]n|asignaci[oó]n|remuneraci[oó]n|bonificaci[oó]n|monto|estipendio|cu[aá]nto esperas)\b", p):
         if tipo_input == "number":
-            return "0"
-        return "$0 (Acorde a la asignación o movilización que tenga contemplada la empresa para alumnos en práctica profesional)."
+            return renta_activa
+        return f"${renta_activa} (Acorde a la asignación o movilización que tenga contemplada la empresa para alumnos en práctica profesional)."
 
     # 5. Seguro escolar de accidentes (Requisito Ley 16.744)
     if re.search(r"\b(seguro|accidente|16\.?744|cobertura m[eé]dica)\b", p):
         if tipo_input == "radio_boolean":
             return "si"
-        return "Sí, cuento con Seguro Escolar de Accidentes vigente otorgado por Duoc UC bajo la Ley 16.744 con cobertura activa hasta fines de enero de 2027 para la totalidad de las 360 horas de práctica profesional."
+        return f"Sí, cuento con Seguro Escolar de Accidentes vigente otorgado por {inst_activa} bajo la Ley 16.744 con cobertura activa hasta fines de enero de 2027 para la totalidad de las {horas_activas} horas de práctica profesional."
 
     # 6. Horas de práctica / Semanas / Duración / Extensión
     if re.search(r"\b(horas?|semanas?|duraci[oó]n|cu[aá]nto tiempo|extender|posibilidad de extender)\b", p):
         if tipo_input == "number":
-            return "360"
-        return "360 horas cronológicas requeridas por Duoc UC (equivalente a aprox. 9 semanas a jornada completa). Cuento con total disposición y posibilidad de extender el periodo según las necesidades operacionales del equipo."
+            return horas_activas
+        return f"{horas_activas} horas cronológicas requeridas por {inst_activa} (equivalente a aprox. 9 semanas a jornada completa). Cuento con total disposición y posibilidad de extender el periodo según las necesidades operacionales del equipo."
 
     # 7. Formación académica / Carrera / Casa de estudios / Institución / Año
     if re.search(r"\b(carrera|casa de estudio|instituci[oó]n|universidad|instituto|formaci[oó]n|acad[eé]mica|estudios?|qu[eé] estudias|titulaci[oó]n|a[ñn]o)\b", p):
-        return (
-            "Ingeniería en Infraestructura y Plataformas Tecnológicas, 4to año (cuarto año, 8vo semestre de egreso) en Duoc UC Sede Antonio Varas."
-        )
+        return f"{carrera_activa}, {año_activo} en {inst_activa} {sede_activa}."
 
     # 8. Fecha de inicio / Cuándo puedes comenzar / Disponibilidad
     if re.search(r"\b(disponibilidad|fecha de inicio|cu[aá]ndo puedes|comenzar|iniciar|partir|incorporar|horario)\b", p):
