@@ -159,7 +159,7 @@ def es_region_metropolitana(ubicacion: str, titulo: str, descripcion: str = "") 
 
 
 def obtener_ofertas_validas_pendientes(limite: int = 100, solo_id: int = None):
-    """Filtra y devuelve estrictamente ofertas de práctica técnica en la Región Metropolitana."""
+    """Filtra y devuelve estrictamente ofertas de práctica técnica en la Región Metropolitana (priorizando las más recientes)."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -179,19 +179,7 @@ def obtener_ofertas_validas_pendientes(limite: int = 100, solo_id: int = None):
            OR LOWER(titulo) LIKE '%practica%'
            OR LOWER(titulo) LIKE '%practicante%'
            OR LOWER(titulo) LIKE '%alumno%'
-      )
-      AND (
-           LOWER(titulo) LIKE '%inform%'
-           OR LOWER(titulo) LIKE '%ti%'
-           OR LOWER(titulo) LIKE '%redes%'
-           OR LOWER(titulo) LIKE '%conectividad%'
-           OR LOWER(titulo) LIKE '%soporte%'
-           OR LOWER(titulo) LIKE '%ciberseguridad%'
-           OR LOWER(titulo) LIKE '%cloud%'
-           OR LOWER(titulo) LIKE '%programac%'
-           OR LOWER(titulo) LIKE '%desarrollo%'
-           OR LOWER(titulo) LIKE '%sistemas%'
-           OR LOWER(titulo) LIKE '%telecomunicaci%'
+           OR LOWER(titulo) LIKE '%trainee%'
       )
       AND NOT (
            LOWER(titulo) LIKE '%rrhh%'
@@ -203,6 +191,7 @@ def obtener_ofertas_validas_pendientes(limite: int = 100, solo_id: int = None):
            OR LOWER(titulo) LIKE '%comercial%'
            OR LOWER(titulo) LIKE '%marketing%'
            OR LOWER(titulo) LIKE '%social%'
+           OR LOWER(titulo) LIKE '%redes sociales%'
            OR LOWER(titulo) LIKE '%quimic%'
            OR LOWER(titulo) LIKE '%geolog%'
            OR LOWER(titulo) LIKE '%administrativ%'
@@ -223,19 +212,35 @@ def obtener_ofertas_validas_pendientes(limite: int = 100, solo_id: int = None):
            OR LOWER(titulo) LIKE '%desarrollo de personas%'
            OR LOWER(titulo) LIKE '%desarrollo comercial%'
       )
-    ORDER BY score_duoc DESC, id ASC;
+    ORDER BY (CASE WHEN created_at >= date('now', '-5 days') THEN 1 ELSE 0 END) DESC, score_duoc DESC, id DESC;
     """
     c.execute(query)
     candidatas = [dict(r) for r in c.fetchall()]
     conn.close()
 
+    pat_ti_estricto = re.compile(
+        r'\b(ti|it|t\.i|infraestructura|redes|conectividad|telecomunicaciones|ciberseguridad|seguridad ti|seguridad de la información|soporte|sistemas|cloud|devops|servidores|linux|plataformas|mesa de servicio|informática|informatica|data engineering|qa|automatización|automatizacion|programación|programacion|software|continuidad operativa|continuidad operacional)\b',
+        re.I
+    )
+
     filtradas = []
+    vistos_keys = set()
     for cand in candidatas:
         ubi = cand.get("ubicacion") or ""
         tit = cand.get("titulo") or ""
+        emp = cand.get("empresa") or ""
         desc = cand.get("descripcion") or ""
-        if es_region_metropolitana(ubi, tit, desc):
-            filtradas.append(cand)
+        if not pat_ti_estricto.search(tit):
+            continue
+        if "redes sociales" in tit.lower():
+            continue
+        if not es_region_metropolitana(ubi, tit, desc):
+            continue
+        dedup_key = (emp.lower().strip(), tit.lower().strip())
+        if dedup_key in vistos_keys:
+            continue
+        vistos_keys.add(dedup_key)
+        filtradas.append(cand)
 
     return filtradas[:limite]
 
