@@ -42,12 +42,12 @@ SYSTEM_PROMPT_DHANI = """Eres el redactor y asistente de postulación oficial pa
 Tu tarea es responder las preguntas de los formularios de postulación laboral técnica en Chile de manera impecable, directa, concisa y persuasiva, usando exclusivamente los datos reales del candidato.
 
 PERFIL Y ANTECEDENTES REALES DE DHANI AMIT ELGUETA RÍOS:
-- Nombre: Dhani Amit Elgueta Ríos | Teléfono: +56 9 4850 8528 | Correo: correof1553@gmail.com / dh.elgueta@duocuc.cl
+- Nombre: Dhani Amit Elgueta Ríos | Edad: 26 años | Fecha de Nacimiento: 11 de febrero del 2000 | Teléfono: +56 9 4850 8528 | Correo: correof1553@gmail.com / dh.elgueta@duocuc.cl
 - Residencia: Las Condes, Región Metropolitana (con total disponibilidad de traslado diurno hacia cualquier comuna de Santiago).
 - Carrera: Ingeniería en Infraestructura y Plataformas Tecnológicas (y Técnico en Conectividad y Redes) en Duoc UC Sede Antonio Varas (jornada vespertina, 4to año / 8vo semestre de egreso).
 - Año que Cursas: 4to año (cuarto año, 8vo semestre de egreso). Cuando cualquier pregunta mencione año, carrera o situación académica, es OBLIGATORIO indicar explícitamente "4to año (cuarto año)".
 - Horario y Disponibilidad: Estudia en vespertino (desde las 19:00 hrs), por lo que cuenta con disponibilidad diurna completa e inmediata (40 a 45 hrs semanales de lunes a viernes, jornada laboral completa presencial o híbrida).
-- Plazo Crítico de Formalización (15 de Noviembre): Por normativa administrativa de Duoc UC, es OBLIGATORIO consolidar e inscribir formalmente el convenio de práctica de mínimo 360 horas ANTES DEL 15 DE NOVIEMBRE de 2026 (cierre del semestre actual); posterior a esa fecha se exige matricular y pagar un semestre extra adicional en horario de verano para poder convalidarla. El inicio presencial de funciones puede ser inmediato o en diciembre/verano sin problema, siempre que el trámite de inscripción quede cerrado antes del 15 de noviembre.
+- Plazo Crítico de Formalización (15 de Noviembre): Por normativa administrativa de Duoc UC, es OBLIGATORIO consolidar e inscribir formalmente el convenio de práctica de mínimo 360 horas ANTES DEL 15 DE NOVIEMBRE de 2026 (cierre del semestre actual); posterior a esa fecha se exige matricular y pagar un semestre extra solo para la práctica. El inicio presencial de funciones puede ser inmediato o en diciembre/enero sin problema, siempre que el trámite de inscripción quede cerrado antes del 15 de noviembre.
 - Horas de Práctica: 360 horas cronológicas mínimas requeridas por Duoc UC, con total disposición y posibilidad de extender el periodo si el proyecto o la empresa lo requiere.
 - Seguro Escolar: CUMPLE cabalmente; cuenta con Seguro Escolar de Accidentes emitido por Duoc UC bajo la Ley N° 16.744, vigente hasta fines de enero de 2027 para toda la práctica.
 - Carta de Autorización de Práctica: SÍ, cuenta con la Carta de Autorización y presentación de práctica profesional emitida y timbrada por Duoc UC, lista para entrega inmediata.
@@ -313,6 +313,14 @@ def resolver_pregunta_reclutador_fallback(pregunta_raw: str, empresa: str = "la 
     # 1. Teléfono, celular, correo, contacto
     if re.search(r"\b(tel[eé]fono|celular|correo|email|e-mail|contacto|whatsapp|datos de contacto)\b", p):
         return f"{tel_activo} | {mail_activo}"
+
+    # 1.5 Edad y fecha de nacimiento
+    if re.search(r"\b(edad|a[ñn]os tienes|fecha de nacimiento|cumplea[ñn]os|naciste|nacimiento)\b", p):
+        if tipo_input == "number":
+            return "26"
+        if "comuna" in p or "tel" in p or "contacto" in p:
+            return f"Tengo 26 años (nacido el 11 de febrero del 2000), resido en {comuna_activa} y mi número de contacto es {tel_activo}."
+        return "Tengo 26 años (nacido el 11 de febrero del 2000)."
 
     # 2. Comuna de residencia / Dónde vives
     if re.search(r"\b(comuna|residencia|vives|d[oó]nde vives|domicilio|sector de residencia)\b", p):

@@ -906,7 +906,7 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
             # 1.5 Regla Administrativa Duoc UC: Consolidar convenio de mínimo 360 horas antes del 15 de noviembre
             if not es_numero and any(k in p_lower for k in ["disponibilidad", "comenzar", "iniciar", "fecha", "diciembre", "enero", "febrero", "marzo", "verano", "hasta", "cuándo", "cuando", "partir", "duración", "duracion", "meses"]):
                 if "seguro" not in p_lower and "15 de noviembre" not in resp.lower():
-                    nota_15_nov = " Para que pueda validarse y extenderse hasta enero/verano, en Duoc UC debemos consolidar formalmente el convenio de práctica de mínimo 360 horas antes del 15 de noviembre (ya que posterior a esa fecha se exige pagar un semestre adicional de verano)."
+                    nota_15_nov = " Para que pueda validarse y extenderse hasta enero, en Duoc UC debemos consolidar formalmente el convenio de práctica de mínimo 360 horas antes del 15 de noviembre (y así evitar pagar un semestre extra solo para la práctica)."
                     if (len(resp) + len(nota_15_nov)) <= max_len:
                         resp = resp.rstrip(".") + "." + nota_15_nov
 
@@ -919,6 +919,8 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
 
                 if "hora" in p_lower:
                     resp = horas_default
+                elif any(k in p_lower for k in ["edad", "años tienes"]):
+                    resp = "26"
                 elif any(k in p_lower for k in ["renta", "pretension", "pretensión", "sueldo", "remuneracion", "remuneración", "monto", "esperada"]):
                     resp = renta_default
                 elif any(k in p_lower for k in ["telefono", "teléfono", "celular", "fono"]):
@@ -938,23 +940,21 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
             await ta.evaluate('''(el, payload) => {
                 el.dispatchEvent(new Event('input', { bubbles: true }));
                 el.dispatchEvent(new Event('change', { bubbles: true }));
-                if (!payload.esNumero) {
-                    window.__autopostula_qa_map = window.__autopostula_qa_map || {};
-                    window.__autopostula_qa_map[payload.qid] = {
-                        pregunta: payload.pregunta,
-                        bot_answer: payload.resp,
-                        current_answer: el.value
+                window.__autopostula_qa_map = window.__autopostula_qa_map || {};
+                window.__autopostula_qa_map[payload.qid] = {
+                    pregunta: payload.pregunta,
+                    bot_answer: payload.resp,
+                    current_answer: el.value
+                };
+                if (!el.dataset.apListening) {
+                    el.dataset.apListening = '1';
+                    const syncEdit = () => {
+                        if (window.__autopostula_qa_map && window.__autopostula_qa_map[payload.qid]) {
+                            window.__autopostula_qa_map[payload.qid].current_answer = el.value;
+                        }
                     };
-                    if (!el.dataset.apListening) {
-                        el.dataset.apListening = '1';
-                        const syncEdit = () => {
-                            if (window.__autopostula_qa_map && window.__autopostula_qa_map[payload.qid]) {
-                                window.__autopostula_qa_map[payload.qid].current_answer = el.value;
-                            }
-                        };
-                        el.addEventListener('input', syncEdit);
-                        el.addEventListener('change', syncEdit);
-                    }
+                    el.addEventListener('input', syncEdit);
+                    el.addEventListener('change', syncEdit);
                 }
             }''', {"qid": str(idx), "pregunta": q_text, "resp": resp, "esNumero": es_numero})
 
@@ -1147,6 +1147,42 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
     esta_pausado_prev = False
     clic_manual = False
     ultimo_qa_map = {}
+    guardadas_en_vivo = {}
+    pendientes_guardar = {}  # qid -> (texto, timestamp)
+
+    def _sincronizar_ediciones_en_memoria(qa_dict, forzar=False):
+        ahora = time.monotonic()
+        nuevas = []
+        for qid, qinfo in (qa_dict or {}).items():
+            preg = (qinfo.get("pregunta") or "").strip()
+            bot_ans = (qinfo.get("bot_answer") or "").strip()
+            curr_ans = (qinfo.get("current_answer") or "").strip()
+            if not preg or not curr_ans or curr_ans == bot_ans or len(curr_ans) < 2:
+                continue
+            if curr_ans == guardadas_en_vivo.get(qid):
+                continue
+
+            if not forzar:
+                prev_txt, prev_ts = pendientes_guardar.get(qid, (None, 0))
+                if prev_txt != curr_ans:
+                    pendientes_guardar[qid] = (curr_ans, ahora)
+                    continue
+                if (ahora - prev_ts) < 1.2:
+                    continue
+
+            try:
+                database.guardar_o_actualizar_respuesta(preg, curr_ans, categoria="editada_en_vivo")
+                guardadas_en_vivo[qid] = curr_ans
+                pendientes_guardar.pop(qid, None)
+                nuevas.append((preg, curr_ans))
+            except Exception as e:
+                print(f"Aviso guardando modificación en memoria: {e}")
+
+        if nuevas:
+            print(f"\n🧠 ¡MEMORIA ACTUALIZADA EN TIEMPO REAL! Se guardaron {len(nuevas)} ediciones:")
+            for mp, ma in nuevas:
+                print(f"   📝 {mp[:65]} -> {ma[:65]}...")
+            hablar("Anoté tu modificación en memoria; ya quedó guardada como tu respuesta actual.")
 
     while tiempo_transcurrido < segundos_revision:
         try:
@@ -1168,17 +1204,21 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
 
         if estado_control.get("qaMap"):
             ultimo_qa_map = estado_control.get("qaMap")
+            _sincronizar_ediciones_en_memoria(ultimo_qa_map, forzar=False)
 
         if estado_control.get("stop"):
+            _sincronizar_ediciones_en_memoria(ultimo_qa_map, forzar=True)
             print(f"\n🛑 ¡Detectado clic en la X roja! Detención total solicitada por el usuario.")
             return "stop", "Bot detenido por el usuario con la X roja"
 
         if estado_control.get("clickedManual") or estado_control.get("success"):
             clic_manual = True
+            _sincronizar_ediciones_en_memoria(ultimo_qa_map, forzar=True)
             print(f"\n👆 ¡Detectado clic manual del usuario o confirmación anticipada!")
             break
 
         if estado_control.get("skipWait"):
+            _sincronizar_ediciones_en_memoria(ultimo_qa_map, forzar=True)
             print(f"\n🚀 ¡Pulsado 'Enviar Postulación Ahora' desde la ventanita! Omitiendo espera restante...")
             break
 
@@ -1231,25 +1271,8 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
 
     print("")
 
-    # Detectar modificaciones hechas por el usuario y guardarlas en la memoria aprendida
-    if ultimo_qa_map:
-        modificadas = []
-        for qid, qinfo in ultimo_qa_map.items():
-            preg = (qinfo.get("pregunta") or "").strip()
-            bot_ans = (qinfo.get("bot_answer") or "").strip()
-            curr_ans = (qinfo.get("current_answer") or "").strip()
-            if preg and curr_ans and curr_ans != bot_ans and len(curr_ans) >= 3:
-                try:
-                    database.guardar_o_actualizar_respuesta(preg, curr_ans, categoria="editada_en_vivo")
-                    modificadas.append((preg, curr_ans))
-                except Exception as e:
-                    print(f"Aviso guardando modificación en memoria: {e}")
-
-        if modificadas:
-            print(f"\n🧠 ¡AUTO-APRENDIZAJE ACTIVADO! Se guardaron {len(modificadas)} respuestas modificadas en memoria:")
-            for mp, ma in modificadas:
-                print(f"   📝 Pregunta: {mp[:70]} -> Respuesta actual guardada: {ma[:70]}...")
-            hablar(f"Anoté {len(modificadas)} modificación{'es' if len(modificadas)>1 else ''} que realizaste. Queda guardada en memoria como tu respuesta actual para futuras postulaciones.")
+    # Asegurar guardado final de cualquier edición pendiente al salir del bucle
+    _sincronizar_ediciones_en_memoria(ultimo_qa_map, forzar=True)
 
     # Comprobar parada final antes del envío
     st = await comprobar_pausa_y_parada(page)
