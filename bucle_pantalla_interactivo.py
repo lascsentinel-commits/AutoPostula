@@ -888,6 +888,13 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
                 if not resp or resp.strip().upper() in ["N/A", "NO APLICA", "NINGUNA", "NA", "NO", ""] or len(resp.strip()) < 15:
                     resp = f"Me motiva profundamente realizar mi práctica profesional en {empresa} para aportar con proactividad, disciplina y sólidos conocimientos técnicos en infraestructura, redes y continuidad operacional. Busco aprender de los desafíos reales del equipo, resolver incidentes y agregar valor tangible desde el primer día."
 
+            # 1.5 Regla Administrativa Duoc UC: Consolidar convenio antes del 15 de noviembre (si pregunta inicio/disponibilidad)
+            if not es_numero and any(k in p_lower for k in ["disponibilidad", "comenzar", "iniciar", "fecha", "diciembre", "enero", "cuándo", "cuando", "partir"]):
+                if "meses" not in p_lower and "seguro" not in p_lower and "15 de noviembre" not in resp.lower():
+                    nota_15_nov = " Por cierre administrativo en Duoc UC, requerimos consolidar e inscribir formalmente el convenio antes del 15 de noviembre, ya que después de esa fecha debo pagar un semestre extra adicional para validarla en horario de verano."
+                    if (len(resp) + len(nota_15_nov)) <= max_len:
+                        resp = resp.rstrip(".") + "." + nota_15_nov
+
             # 2. Manejo estricto de campos numéricos (ej. WOM Pregunta 2: "¿Cuántas horas de práctica debes realizar?")
             if es_numero:
                 perf = obtener_perfil_activo()

@@ -47,6 +47,7 @@ PERFIL Y ANTECEDENTES REALES DE DHANI AMIT ELGUETA RÍOS:
 - Carrera: Ingeniería en Infraestructura y Plataformas Tecnológicas (y Técnico en Conectividad y Redes) en Duoc UC Sede Antonio Varas (jornada vespertina, 4to año / 8vo semestre de egreso).
 - Año que Cursas: 4to año (cuarto año, 8vo semestre de egreso). Cuando cualquier pregunta mencione año, carrera o situación académica, es OBLIGATORIO indicar explícitamente "4to año (cuarto año)".
 - Horario y Disponibilidad: Estudia en vespertino (desde las 19:00 hrs), por lo que cuenta con disponibilidad diurna completa e inmediata (40 a 45 hrs semanales de lunes a viernes, jornada laboral completa presencial o híbrida).
+- Plazo Crítico de Formalización (15 de Noviembre): Por normativa administrativa de Duoc UC, es OBLIGATORIO consolidar e inscribir formalmente el convenio/carta de práctica ANTES DEL 15 DE NOVIEMBRE de 2026 (cierre del semestre actual); posterior a esa fecha se exige matricular y pagar un semestre extra adicional en horario de verano para poder convalidarla. El inicio presencial de funciones puede ser inmediato o en diciembre/verano sin problema, siempre que el trámite de inscripción quede cerrado antes del 15 de noviembre.
 - Horas de Práctica: 360 horas cronológicas mínimas requeridas por Duoc UC, con total disposición y posibilidad de extender el periodo si el proyecto o la empresa lo requiere.
 - Seguro Escolar: CUMPLE cabalmente; cuenta con Seguro Escolar de Accidentes emitido por Duoc UC bajo la Ley N° 16.744, vigente hasta fines de enero de 2027 para toda la práctica.
 - Carta de Autorización de Práctica: SÍ, cuenta con la Carta de Autorización y presentación de práctica profesional emitida y timbrada por Duoc UC, lista para entrega inmediata.
@@ -63,7 +64,7 @@ REGLAS OBLIGATORIAS:
 1. Responde de forma DIRECTA, en primera persona ("Sí, cuento con...", "Tengo total disponibilidad...", "Espero...").
 2. No te desvíes de la pregunta específica:
    - Si preguntan si puede asistir de forma presencial a Quilicura o cualquier comuna de la RM, responde afirmativamente: "Sí, resido en Las Condes y cuento con total disponibilidad y facilidad de traslado para asistir de forma presencial a [comuna]."
-   - Si preguntan por disponibilidad horaria o jornada, responde: "Cuento con disponibilidad completa e inmediata para trabajar de lunes a viernes en jornada diurna completa (40 a 45 hrs semanales), ya que curso ramos en modalidad vespertina (desde las 19:00 hrs)."
+   - Si preguntan por disponibilidad horaria o jornada, o por fecha de inicio (ej. "¿Desde cuándo puedes comenzar?" o "¿Disponibilidad para comenzar en diciembre?"), responde SIEMPRE afirmativamente sobre el horario/fecha, PERO aclara explícitamente la necesidad administrativa: "Cuento con total disponibilidad (de lunes a viernes en jornada diurna completa, para iniciar de inmediato o en la fecha de diciembre que soliciten); solo necesito señalar que por cierre administrativo en Duoc UC debemos consolidar e inscribir la práctica antes del 15 de noviembre para convalidarla este semestre y evitar tener que pagar un semestre extra adicional en horario de verano."
    - Si preguntan qué espera de la práctica profesional, responde enfocado en aportar al equipo TI, resolver problemas reales de infraestructura/soporte y consolidar su aprendizaje profesional.
    - Si preguntan si cuenta con carta de autorización de práctica, responde afirmativamente: "Sí, cuento con la Carta de Autorización y presentación de práctica profesional emitida y timbrada por Duoc UC, lista para entrega inmediata."
    - Si piden el número de horas de práctica, responde directamente las 360 horas cronológicas requeridas por Duoc UC con total disposición a extenderlas si el proyecto lo requiere.
@@ -300,10 +301,10 @@ def resolver_pregunta_reclutador_fallback(pregunta_raw: str, empresa: str = "la 
         return f"{carrera_activa}, {año_activo} en {inst_activa} {sede_activa}."
 
     # 8. Fecha de inicio / Cuándo puedes comenzar / Disponibilidad
-    if re.search(r"\b(disponibilidad|fecha de inicio|cu[aá]ndo puedes|comenzar|iniciar|partir|incorporar|horario)\b", p):
+    if re.search(r"\b(disponibilidad|fecha de inicio|cu[aá]ndo puedes|comenzar|iniciar|partir|incorporar|horario|diciembre|enero|verano)\b", p):
         if tipo_input == "radio_boolean":
             return "si"
-        return "Disponibilidad diurna completa e inmediata (40 a 45 horas semanales de lunes a viernes). Cuento con respaldo institucional de Duoc UC para formalizar y validar el convenio antes del 15 de noviembre, pudiendo comenzar de inmediato o en diciembre/enero según requerimientos de la empresa."
+        return "Disponibilidad diurna completa e inmediata (40 a 45 horas semanales de lunes a viernes, para iniciar de inmediato o en diciembre/enero según requieran). Como detalle importante de gestión académica, en Duoc UC necesitamos consolidar e inscribir formalmente el convenio antes del 15 de noviembre, ya que después de esa fecha tendría que pagar un semestre extra adicional para validarla en horario de verano."
 
     # 9. Licencia de conducir
     if re.search(r"\b(licencia|conducir|clase b|veh[ií]culo)\b", p):
