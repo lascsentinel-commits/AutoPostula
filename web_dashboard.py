@@ -23,9 +23,11 @@ if BASE_DIR not in sys.path:
 from database import (
     PORTALES_SOPORTADOS,
     actualizar_estado_postulacion,
+    eliminar_respuesta_aprendida,
     get_conn,
     guardar_estado_scheduler,
     guardar_filtros,
+    guardar_o_actualizar_respuesta,
     init_db,
     obtener_alertas_pendientes,
     obtener_catalogo_portales,
@@ -34,6 +36,7 @@ from database import (
     obtener_logs_scheduler,
     obtener_perfil,
     obtener_postulaciones,
+    obtener_respuestas_aprendidas,
 )
 from daemon_scheduler import calcular_proximo_horario
 from modules.auto_applier import (
@@ -1169,6 +1172,257 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>
 """
 
+MEMORY_HTML_PAGE = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoPostula · Memoria de Preguntas y Respuestas</title>
+    <style>
+        :root {
+            --bg: #090d16;
+            --card: #111827;
+            --border: rgba(56, 189, 248, 0.25);
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --accent: #38bdf8;
+            --green: #10b981;
+            --red: #ef4444;
+            --indigo: #6366f1;
+        }
+        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: var(--bg); color: var(--text); margin: 0; padding: 24px; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        header {
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;
+            padding-bottom: 20px; border-bottom: 1px solid var(--border); margin-bottom: 24px;
+        }
+        h1 { margin: 0; font-size: 24px; color: var(--accent); display: flex; align-items: center; gap: 10px; }
+        .subtitle { color: var(--muted); font-size: 14px; margin-top: 4px; }
+        .actions { display: flex; gap: 12px; align-items: center; }
+        .btn {
+            border: none; border-radius: 10px; padding: 10px 16px; font-weight: 700; font-size: 13px;
+            cursor: pointer; transition: all 0.15s ease; color: #fff; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn-primary { background: var(--indigo); }
+        .btn-primary:hover { background: #4f46e5; }
+        .btn-green { background: var(--green); }
+        .btn-green:hover { background: #059669; }
+        .btn-red { background: rgba(239, 68, 68, 0.15); border: 1px solid var(--red); color: #fca5a5; }
+        .btn-red:hover { background: var(--red); color: #fff; }
+        .btn-edit { background: rgba(56, 189, 248, 0.15); border: 1px solid var(--accent); color: #7dd3fc; }
+        .btn-edit:hover { background: var(--accent); color: #090d16; }
+        .btn-secondary { background: #1e293b; border: 1px solid #334155; }
+
+        .search-bar {
+            width: 100%; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border);
+            background: var(--card); color: var(--text); font-size: 14px; margin-bottom: 20px; outline: none;
+        }
+        .search-bar:focus { border-color: var(--accent); }
+
+        .qa-grid { display: flex; flex-direction: column; gap: 14px; }
+        .qa-card {
+            background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px;
+            display: flex; flex-direction: column; gap: 10px; transition: border-color 0.2s;
+        }
+        .qa-card:hover { border-color: var(--accent); }
+        .qa-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .qa-question { font-size: 15px; font-weight: 700; color: #e2e8f0; margin: 0; line-height: 1.4; }
+        .qa-badge {
+            background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.4); color: #a5b4fc;
+            font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+        }
+        .qa-answer {
+            background: #0b1120; border: 1px solid rgba(255,255,255,0.06); border-radius: 10px;
+            padding: 12px; font-size: 14px; color: #cbd5e1; line-height: 1.5; white-space: pre-wrap;
+        }
+        .qa-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+        .qa-meta { font-size: 12px; color: var(--muted); }
+        .qa-btns { display: flex; gap: 8px; }
+
+        /* Modal */
+        .modal-backdrop {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000;
+            align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px);
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: #111827; border: 2px solid var(--accent); border-radius: 16px; width: 100%; max-width: 650px;
+            padding: 24px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 25px 50px rgba(0,0,0,0.8);
+        }
+        .modal h2 { margin: 0; font-size: 18px; color: var(--accent); }
+        .field { display: flex; flex-direction: column; gap: 6px; }
+        .field label { font-size: 13px; font-weight: 700; color: var(--muted); }
+        .field input, .field textarea, .field select {
+            background: #090d16; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px;
+            color: var(--text); font-size: 14px; outline: none;
+        }
+        .field textarea { min-height: 130px; resize: vertical; line-height: 1.5; }
+        .field input:focus, .field textarea:focus { border-color: var(--accent); }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div>
+            <h1>🧠 Memoria de Preguntas y Respuestas (AutoPostula)</h1>
+            <div class="subtitle">Todas las modificaciones que hagas en vivo y las reglas creadas aquí tienen prioridad absoluta al responder formularios.</div>
+        </div>
+        <div class="actions">
+            <a href="/" class="btn btn-secondary">⬅️ Volver al Panel NOC</a>
+            <button onclick="openModal()" class="btn btn-green">➕ Crear Pregunta / Respuesta</button>
+        </div>
+    </header>
+
+    <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Buscar por palabra clave de pregunta o respuesta..." oninput="renderList()">
+
+    <div id="qaList" class="qa-grid">Cargando memoria...</div>
+</div>
+
+<!-- Modal Crear / Editar -->
+<div id="qaModal" class="modal-backdrop">
+    <div class="modal">
+        <h2 id="modalTitle">✏️ Editar Pregunta y Respuesta</h2>
+        <input type="hidden" id="editId">
+        <div class="field">
+            <label>Pregunta o Palabra Clave del Reclutador (editable)</label>
+            <input type="text" id="editPregunta" placeholder="Ej: ¿Disponibilidad para comenzar en diciembre o hasta enero?">
+        </div>
+        <div class="field">
+            <label>Categoría</label>
+            <select id="editCategoria">
+                <option value="disponibilidad">disponibilidad / plazos</option>
+                <option value="editada_en_vivo">editada_en_vivo</option>
+                <option value="general">general</option>
+                <option value="tecnica">tecnica / ti</option>
+                <option value="motivacion">motivacion</option>
+                <option value="datos_personales">datos_personales</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Respuesta Actual Oficial (lo que escribirá el bot)</label>
+            <textarea id="editRespuesta" placeholder="Escribe la respuesta exacta que debe usar AutoPostula..."></textarea>
+        </div>
+        <div class="modal-actions">
+            <button onclick="closeModal()" class="btn btn-secondary">Cancelar</button>
+            <button onclick="saveItem()" class="btn btn-primary">💾 Guardar Cambios</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let allItems = [];
+
+async function loadMemoria() {
+    const res = await fetch('/api/memoria');
+    allItems = await res.json();
+    renderList();
+}
+
+function escapeHtml(str) {
+    return (str || '').replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    }[tag] || tag));
+}
+
+function renderList() {
+    const q = (document.getElementById('searchInput').value || '').toLowerCase();
+    const filtered = allItems.filter(item =>
+        (item.pregunta_clave || '').toLowerCase().includes(q) ||
+        (item.respuesta || '').toLowerCase().includes(q) ||
+        (item.categoria || '').toLowerCase().includes(q)
+    );
+    const container = document.getElementById('qaList');
+    if (filtered.length === 0) {
+        container.innerHTML = '<div style="color:#94a3b8; text-align:center; padding:40px;">No hay preguntas guardadas que coincidan.</div>';
+        return;
+    }
+    container.innerHTML = filtered.map(item => `
+        <div class="qa-card">
+            <div class="qa-header">
+                <h3 class="qa-question">❓ ${escapeHtml(item.pregunta_clave)}</h3>
+                <span class="qa-badge">${escapeHtml(item.categoria || 'general')}</span>
+            </div>
+            <div class="qa-answer">${escapeHtml(item.respuesta)}</div>
+            <div class="qa-footer">
+                <span class="qa-meta">ID #${item.id} · Usada ${item.veces_usada || 1} veces · Guardado: ${escapeHtml(item.created_at || '')}</span>
+                <div class="qa-btns">
+                    <button class="btn btn-edit" onclick="editItem(${item.id})">✏️ Modificar</button>
+                    <button class="btn btn-red" onclick="deleteItem(${item.id})">🗑️ Borrar</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function openModal(item = null) {
+    document.getElementById('editId').value = item ? item.id : '';
+    document.getElementById('editPregunta').value = item ? item.pregunta_clave : '';
+    document.getElementById('editRespuesta').value = item ? item.respuesta : '';
+    document.getElementById('editCategoria').value = item ? (item.categoria || 'general') : 'general';
+    document.getElementById('modalTitle').innerText = item ? '✏️ Modificar Pregunta y Respuesta' : '➕ Nueva Pregunta y Respuesta';
+    document.getElementById('qaModal').classList.add('open');
+}
+
+function closeModal() {
+    document.getElementById('qaModal').classList.remove('open');
+}
+
+function editItem(id) {
+    const item = allItems.find(x => x.id === id);
+    if (item) openModal(item);
+}
+
+async function saveItem() {
+    const idVal = document.getElementById('editId').value;
+    const pregunta = document.getElementById('editPregunta').value.trim();
+    const respuesta = document.getElementById('editRespuesta').value.trim();
+    const categoria = document.getElementById('editCategoria').value;
+
+    if (!pregunta || !respuesta) {
+        alert('Tanto la pregunta como la respuesta son obligatorias.');
+        return;
+    }
+
+    const res = await fetch('/api/memoria/save', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            id: idVal ? parseInt(idVal, 10) : null,
+            pregunta_clave: pregunta,
+            respuesta: respuesta,
+            categoria: categoria
+        })
+    });
+    const data = await res.json();
+    if (data.ok) {
+        closeModal();
+        loadMemoria();
+    } else {
+        alert('Error al guardar: ' + (data.error || 'Desconocido'));
+    }
+}
+
+async function deleteItem(id) {
+    if (!confirm('¿Seguro que deseas borrar esta pregunta y respuesta de la memoria del bot?')) return;
+    const res = await fetch('/api/memoria/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id: id })
+    });
+    const data = await res.json();
+    if (data.ok) {
+        loadMemoria();
+    }
+}
+
+loadMemoria();
+</script>
+</body>
+</html>
+"""
+
 
 class AutoPostulaHandler(BaseHTTPRequestHandler):
     def _send_json(self, payload, status=200):
@@ -1197,6 +1451,16 @@ class AutoPostulaHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif parsed.path == "/memoria":
+            body = MEMORY_HTML_PAGE.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif parsed.path == "/api/memoria":
+            init_db()
+            self._send_json(obtener_respuestas_aprendidas())
         elif parsed.path == "/api/stats":
             self._send_json(get_stats())
         elif parsed.path == "/api/portales":
@@ -1217,7 +1481,34 @@ class AutoPostulaHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
-        if parsed.path == "/api/start-interactive-loop":
+        if parsed.path == "/api/memoria/save":
+            try:
+                data = self._read_json()
+                preg = (data.get("pregunta_clave") or "").strip()
+                resp = (data.get("respuesta") or "").strip()
+                cat = (data.get("categoria") or "general").strip()
+                item_id = data.get("id")
+                if not preg or not resp:
+                    self._send_json({"ok": False, "error": "Pregunta y respuesta obligatorias"}, status=400)
+                    return
+                new_id = guardar_o_actualizar_respuesta(preg, resp, categoria=cat, item_id=item_id)
+                self._send_json({"ok": True, "id": new_id})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
+
+        elif parsed.path == "/api/memoria/delete":
+            try:
+                data = self._read_json()
+                item_id = data.get("id")
+                if not item_id:
+                    self._send_json({"ok": False, "error": "ID requerido"}, status=400)
+                    return
+                ok = eliminar_respuesta_aprendida(int(item_id))
+                self._send_json({"ok": ok})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
+
+        elif parsed.path == "/api/start-interactive-loop":
             try:
                 env = os.environ.copy()
                 env["DISPLAY"] = ":0"

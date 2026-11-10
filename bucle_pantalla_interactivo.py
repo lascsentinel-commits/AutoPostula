@@ -426,6 +426,11 @@ async def inyectar_boton_flotante_control(page):
                         🚀 Enviar Postulación Ahora
                     </button>
 
+                    <!-- Botón Ver / Editar Memoria (Q&A) -->
+                    <button id="autopostula-modal-memory" style="background:#6366f1; border:none; border-radius:10px; color:#ffffff; font-size:12px; font-weight:800; padding:8px; cursor:pointer;">
+                        🧠 Ver / Editar Memoria (Q&A)
+                    </button>
+
                     <!-- Botón Detener Bot -->
                     <button id="autopostula-modal-stop-bot" style="background:transparent; border:1px solid #ef4444; border-radius:10px; color:#ef4444; font-size:12px; font-weight:700; padding:7px; cursor:pointer;">
                         🛑 Detener Bot por Completo
@@ -494,6 +499,16 @@ async def inyectar_boton_flotante_control(page):
                         e.stopPropagation();
                         window.__autopostula_skip_wait = true;
                         updateWidgetState();
+                    });
+                }
+
+                const memBtn = modal.querySelector('#autopostula-modal-memory');
+                if (memBtn) {
+                    memBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        window.__autopostula_paused = true;
+                        updateWidgetState();
+                        window.open('http://localhost:8087/memoria', '_blank');
                     });
                 }
 
@@ -888,10 +903,10 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
                 if not resp or resp.strip().upper() in ["N/A", "NO APLICA", "NINGUNA", "NA", "NO", ""] or len(resp.strip()) < 15:
                     resp = f"Me motiva profundamente realizar mi práctica profesional en {empresa} para aportar con proactividad, disciplina y sólidos conocimientos técnicos en infraestructura, redes y continuidad operacional. Busco aprender de los desafíos reales del equipo, resolver incidentes y agregar valor tangible desde el primer día."
 
-            # 1.5 Regla Administrativa Duoc UC: Consolidar convenio antes del 15 de noviembre (si pregunta inicio/disponibilidad)
-            if not es_numero and any(k in p_lower for k in ["disponibilidad", "comenzar", "iniciar", "fecha", "diciembre", "enero", "cuándo", "cuando", "partir"]):
-                if "meses" not in p_lower and "seguro" not in p_lower and "15 de noviembre" not in resp.lower():
-                    nota_15_nov = " Por cierre administrativo en Duoc UC, requerimos consolidar e inscribir formalmente el convenio antes del 15 de noviembre, ya que después de esa fecha debo pagar un semestre extra adicional para validarla en horario de verano."
+            # 1.5 Regla Administrativa Duoc UC: Consolidar convenio de mínimo 360 horas antes del 15 de noviembre
+            if not es_numero and any(k in p_lower for k in ["disponibilidad", "comenzar", "iniciar", "fecha", "diciembre", "enero", "febrero", "marzo", "verano", "hasta", "cuándo", "cuando", "partir", "duración", "duracion", "meses"]):
+                if "seguro" not in p_lower and "15 de noviembre" not in resp.lower():
+                    nota_15_nov = " Para que pueda validarse y extenderse hasta enero/verano, en Duoc UC debemos consolidar formalmente el convenio de práctica de mínimo 360 horas antes del 15 de noviembre (ya que posterior a esa fecha se exige pagar un semestre adicional de verano)."
                     if (len(resp) + len(nota_15_nov)) <= max_len:
                         resp = resp.rstrip(".") + "." + nota_15_nov
 
@@ -920,10 +935,28 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
             await ta.scroll_into_view_if_needed()
             await ta.click()
             await ta.fill(resp)
-            await ta.evaluate('''el => {
+            await ta.evaluate('''(el, payload) => {
                 el.dispatchEvent(new Event('input', { bubbles: true }));
                 el.dispatchEvent(new Event('change', { bubbles: true }));
-            }''')
+                if (!payload.esNumero) {
+                    window.__autopostula_qa_map = window.__autopostula_qa_map || {};
+                    window.__autopostula_qa_map[payload.qid] = {
+                        pregunta: payload.pregunta,
+                        bot_answer: payload.resp,
+                        current_answer: el.value
+                    };
+                    if (!el.dataset.apListening) {
+                        el.dataset.apListening = '1';
+                        const syncEdit = () => {
+                            if (window.__autopostula_qa_map && window.__autopostula_qa_map[payload.qid]) {
+                                window.__autopostula_qa_map[payload.qid].current_answer = el.value;
+                            }
+                        };
+                        el.addEventListener('input', syncEdit);
+                        el.addEventListener('change', syncEdit);
+                    }
+                }
+            }''', {"qid": str(idx), "pregunta": q_text, "resp": resp, "esNumero": es_numero})
 
             if q_text not in seen:
                 seen.add(q_text)
@@ -1113,18 +1146,28 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
     tiempo_transcurrido = 0.0
     esta_pausado_prev = False
     clic_manual = False
+    ultimo_qa_map = {}
 
     while tiempo_transcurrido < segundos_revision:
-        estado_control = await page.evaluate('''() => {
-            return {
-                stop: window.__autopostula_stop || false,
-                paused: window.__autopostula_paused || false,
-                skipWait: window.__autopostula_skip_wait || false,
-                customSeconds: window.__autopostula_segundos_revision || null,
-                clickedManual: window.__usuario_envio_postulacion || false,
-                success: document.body.innerText.toLowerCase().includes('éxito') || document.body.innerText.toLowerCase().includes('postulado')
-            };
-        }''')
+        try:
+            estado_control = await page.evaluate('''() => {
+                return {
+                    stop: window.__autopostula_stop || false,
+                    paused: window.__autopostula_paused || false,
+                    skipWait: window.__autopostula_skip_wait || false,
+                    customSeconds: window.__autopostula_segundos_revision || null,
+                    clickedManual: window.__usuario_envio_postulacion || false,
+                    qaMap: window.__autopostula_qa_map || {},
+                    success: document.body.innerText.toLowerCase().includes('éxito') || document.body.innerText.toLowerCase().includes('postulado')
+                };
+            }''')
+        except Exception:
+            # Si la página ya navegó tras clic manual
+            clic_manual = True
+            break
+
+        if estado_control.get("qaMap"):
+            ultimo_qa_map = estado_control.get("qaMap")
 
         if estado_control.get("stop"):
             print(f"\n🛑 ¡Detectado clic en la X roja! Detención total solicitada por el usuario.")
@@ -1187,6 +1230,26 @@ async def procesar_oferta_interactiva(page, oferta: dict, segundos_revision: int
             tiempo_transcurrido += 0.5
 
     print("")
+
+    # Detectar modificaciones hechas por el usuario y guardarlas en la memoria aprendida
+    if ultimo_qa_map:
+        modificadas = []
+        for qid, qinfo in ultimo_qa_map.items():
+            preg = (qinfo.get("pregunta") or "").strip()
+            bot_ans = (qinfo.get("bot_answer") or "").strip()
+            curr_ans = (qinfo.get("current_answer") or "").strip()
+            if preg and curr_ans and curr_ans != bot_ans and len(curr_ans) >= 3:
+                try:
+                    database.guardar_o_actualizar_respuesta(preg, curr_ans, categoria="editada_en_vivo")
+                    modificadas.append((preg, curr_ans))
+                except Exception as e:
+                    print(f"Aviso guardando modificación en memoria: {e}")
+
+        if modificadas:
+            print(f"\n🧠 ¡AUTO-APRENDIZAJE ACTIVADO! Se guardaron {len(modificadas)} respuestas modificadas en memoria:")
+            for mp, ma in modificadas:
+                print(f"   📝 Pregunta: {mp[:70]} -> Respuesta actual guardada: {ma[:70]}...")
+            hablar(f"Anoté {len(modificadas)} modificación{'es' if len(modificadas)>1 else ''} que realizaste. Queda guardada en memoria como tu respuesta actual para futuras postulaciones.")
 
     # Comprobar parada final antes del envío
     st = await comprobar_pausa_y_parada(page)
@@ -1276,7 +1339,22 @@ async def ejecutar_bucle(segundos_revision: int = 30, max_ofertas: int = 100, so
     print(f"⏱️  Pausa de revisión tras lectura: {segundos_revision} segundos")
     print(f"🔘 Botón flotante interactivo: Esquina inferior izquierda (Pausar/Reanudar)")
     print(f"🖥️  Navegador: Brave Browser en puerto 9222 (CDP)")
+    print(f"🧠 Gestor de Memoria Q&A: http://localhost:8087/memoria")
     print("==========================================================")
+
+    # Asegurar que el servidor de Memoria y Dashboard (puerto 8087) esté activo
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://localhost:8087/api/memoria", timeout=0.8)
+    except Exception:
+        try:
+            subprocess.Popen(
+                [sys.executable, str(BASE_DIR / "web_dashboard.py")],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            pass
 
     hablar(f"Iniciando bucle para {total} ofertas de la Región Metropolitana. Dispones del botón flotante en la esquina inferior izquierda para pausar y reanudar.")
 

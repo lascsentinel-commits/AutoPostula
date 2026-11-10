@@ -47,7 +47,7 @@ PERFIL Y ANTECEDENTES REALES DE DHANI AMIT ELGUETA RÍOS:
 - Carrera: Ingeniería en Infraestructura y Plataformas Tecnológicas (y Técnico en Conectividad y Redes) en Duoc UC Sede Antonio Varas (jornada vespertina, 4to año / 8vo semestre de egreso).
 - Año que Cursas: 4to año (cuarto año, 8vo semestre de egreso). Cuando cualquier pregunta mencione año, carrera o situación académica, es OBLIGATORIO indicar explícitamente "4to año (cuarto año)".
 - Horario y Disponibilidad: Estudia en vespertino (desde las 19:00 hrs), por lo que cuenta con disponibilidad diurna completa e inmediata (40 a 45 hrs semanales de lunes a viernes, jornada laboral completa presencial o híbrida).
-- Plazo Crítico de Formalización (15 de Noviembre): Por normativa administrativa de Duoc UC, es OBLIGATORIO consolidar e inscribir formalmente el convenio/carta de práctica ANTES DEL 15 DE NOVIEMBRE de 2026 (cierre del semestre actual); posterior a esa fecha se exige matricular y pagar un semestre extra adicional en horario de verano para poder convalidarla. El inicio presencial de funciones puede ser inmediato o en diciembre/verano sin problema, siempre que el trámite de inscripción quede cerrado antes del 15 de noviembre.
+- Plazo Crítico de Formalización (15 de Noviembre): Por normativa administrativa de Duoc UC, es OBLIGATORIO consolidar e inscribir formalmente el convenio de práctica de mínimo 360 horas ANTES DEL 15 DE NOVIEMBRE de 2026 (cierre del semestre actual); posterior a esa fecha se exige matricular y pagar un semestre extra adicional en horario de verano para poder convalidarla. El inicio presencial de funciones puede ser inmediato o en diciembre/verano sin problema, siempre que el trámite de inscripción quede cerrado antes del 15 de noviembre.
 - Horas de Práctica: 360 horas cronológicas mínimas requeridas por Duoc UC, con total disposición y posibilidad de extender el periodo si el proyecto o la empresa lo requiere.
 - Seguro Escolar: CUMPLE cabalmente; cuenta con Seguro Escolar de Accidentes emitido por Duoc UC bajo la Ley N° 16.744, vigente hasta fines de enero de 2027 para toda la práctica.
 - Carta de Autorización de Práctica: SÍ, cuenta con la Carta de Autorización y presentación de práctica profesional emitida y timbrada por Duoc UC, lista para entrega inmediata.
@@ -64,7 +64,7 @@ REGLAS OBLIGATORIAS:
 1. Responde de forma DIRECTA, en primera persona ("Sí, cuento con...", "Tengo total disponibilidad...", "Espero...").
 2. No te desvíes de la pregunta específica:
    - Si preguntan si puede asistir de forma presencial a Quilicura o cualquier comuna de la RM, responde afirmativamente: "Sí, resido en Las Condes y cuento con total disponibilidad y facilidad de traslado para asistir de forma presencial a [comuna]."
-   - Si preguntan por disponibilidad horaria o jornada, o por fecha de inicio (ej. "¿Desde cuándo puedes comenzar?" o "¿Disponibilidad para comenzar en diciembre?"), responde SIEMPRE afirmativamente sobre el horario/fecha, PERO aclara explícitamente la necesidad administrativa: "Cuento con total disponibilidad (de lunes a viernes en jornada diurna completa, para iniciar de inmediato o en la fecha de diciembre que soliciten); solo necesito señalar que por cierre administrativo en Duoc UC debemos consolidar e inscribir la práctica antes del 15 de noviembre para convalidarla este semestre y evitar tener que pagar un semestre extra adicional en horario de verano."
+   - Si preguntan por disponibilidad horaria o jornada, o por fecha de inicio (ej. "¿Desde cuándo puedes comenzar?" o "¿Disponibilidad para comenzar en diciembre?"), responde SIEMPRE afirmativamente sobre el horario/fecha, PERO aclara explícitamente la necesidad administrativa: "Cuento con total disponibilidad (de lunes a viernes en jornada diurna completa, para iniciar de inmediato o en la fecha de diciembre que soliciten); solo necesito señalar que por cierre administrativo en Duoc UC debemos consolidar formalmente el convenio de práctica de mínimo 360 horas antes del 15 de noviembre para convalidarla este semestre y evitar tener que pagar un semestre extra adicional en horario de verano."
    - Si preguntan qué espera de la práctica profesional, responde enfocado en aportar al equipo TI, resolver problemas reales de infraestructura/soporte y consolidar su aprendizaje profesional.
    - Si preguntan si cuenta con carta de autorización de práctica, responde afirmativamente: "Sí, cuento con la Carta de Autorización y presentación de práctica profesional emitida y timbrada por Duoc UC, lista para entrega inmediata."
    - Si piden el número de horas de práctica, responde directamente las 360 horas cronológicas requeridas por Duoc UC con total disposición a extenderlas si el proyecto lo requiere.
@@ -154,21 +154,65 @@ REGLAS OBLIGATORIAS:
 
 
 
+def _cargar_memoria_aprendida() -> list[dict]:
+    try:
+        from database import obtener_respuestas_aprendidas
+        return obtener_respuestas_aprendidas()
+    except Exception:
+        return []
+
+
+def _buscar_en_memoria(pregunta_raw: str) -> str | None:
+    try:
+        from database import buscar_respuesta_aprendida
+        limpia = limpiar_texto_pregunta(pregunta_raw)
+        return buscar_respuesta_aprendida(limpia)
+    except Exception:
+        return None
+
+
 def resolver_preguntas_con_gemini_en_lote(preguntas: list[dict], empresa: str = "la empresa", cargo: str = "Práctica TI") -> dict[int, str]:
-    """Resuelve en una sola llamada a Gemini 2.5 Flash / 3.5 Flash todas las preguntas de un formulario en lote."""
+    """Resuelve en una sola llamada a Gemini 2.5 Flash / 3.5 Flash todas las preguntas de un formulario en lote,
+    dando PRIORIDAD ABSOLUTA a las respuestas aprendidas/modificadas por el usuario en memoria."""
     if not preguntas:
         return {}
 
+    resultado_final = {}
+    preguntas_para_llm = []
+
+    # 1. Revisar memoria aprendida primero para cada pregunta
+    for idx, p in enumerate(preguntas):
+        q_raw = p.get("pregunta", "")
+        mem_ans = _buscar_en_memoria(q_raw)
+        if mem_ans:
+            resultado_final[idx] = mem_ans.replace("{empresa}", empresa)
+        else:
+            preguntas_para_llm.append((idx, p))
+
+    if not preguntas_para_llm:
+        return resultado_final
+
     if not GENAI_AVAILABLE or not GEMINI_API_KEY:
-        return {idx: resolver_pregunta_reclutador_fallback(p["pregunta"], empresa) for idx, p in enumerate(preguntas)}
+        for idx, p in preguntas_para_llm:
+            resultado_final[idx] = resolver_pregunta_reclutador_fallback(p["pregunta"], empresa)
+        return resultado_final
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
+    # Inyectar contexto de memoria actual para mantener coherencia en preguntas similares
+    memoria_lista = _cargar_memoria_aprendida()
+    memoria_txt = ""
+    if memoria_lista:
+        pares = [{"pregunta": m["pregunta_clave"], "respuesta_actual": m["respuesta"]} for m in memoria_lista[:25]]
+        memoria_txt = "\n\nMEMORIA DE RESPUESTAS ACTUALES DEL CANDIDATO (Úsalas como referencia prioritaria si la pregunta trata del mismo tema):\n" + json.dumps(pares, ensure_ascii=False, indent=2)
+
+    mapa_indices = {str(pos): orig_idx for pos, (orig_idx, _) in enumerate(preguntas_para_llm)}
     prompt = (
         f"Empresa: {empresa}\n"
         f"Cargo: {cargo}\n"
-        "Preguntas del formulario a responder:\n"
-        + json.dumps({str(i): p.get("pregunta", "") for i, p in enumerate(preguntas)}, ensure_ascii=False, indent=2)
+        + memoria_txt
+        + "\n\nPreguntas del formulario a responder:\n"
+        + json.dumps({str(pos): p.get("pregunta", "") for pos, (_, p) in enumerate(preguntas_para_llm)}, ensure_ascii=False, indent=2)
         + "\n\nDevuelve ÚNICAMENTE un objeto JSON donde cada clave sea el índice como string (\"0\", \"1\", ...) y el valor sea la respuesta exacta para ese campo."
     )
 
@@ -182,38 +226,42 @@ def resolver_preguntas_con_gemini_en_lote(preguntas: list[dict], empresa: str = 
         try:
             resp = client.models.generate_content(model=modelo, contents=prompt, config=config)
             data = json.loads(resp.text)
-            resultado = {}
+            llm_out = {}
             if isinstance(data, list):
-                for idx, val in enumerate(data):
-                    resultado[idx] = str(val).strip()
+                for pos, val in enumerate(data):
+                    if str(pos) in mapa_indices:
+                        llm_out[mapa_indices[str(pos)]] = str(val).strip()
             elif isinstance(data, dict):
-                for idx in range(len(preguntas)):
-                    v = data.get(str(idx)) or data.get(str(idx + 1)) or data.get(idx)
+                for pos_str, orig_idx in mapa_indices.items():
+                    v = data.get(pos_str) or data.get(int(pos_str))
                     if v:
-                        resultado[idx] = str(v).strip()
-            if len(resultado) == len(preguntas):
-                # Post-procesamiento de seguridad: evitar N/A o respuestas vacías en preguntas abiertas
-                for idx, p in enumerate(preguntas):
+                        llm_out[orig_idx] = str(v).strip()
+
+            if len(llm_out) > 0:
+                for orig_idx, p in preguntas_para_llm:
                     q_text = p.get("pregunta", "").lower()
-                    ans = resultado.get(idx, "")
+                    ans = llm_out.get(orig_idx) or resolver_pregunta_reclutador_fallback(p.get("pregunta", ""), empresa)
                     if any(w in q_text for w in ["motiva", "por qué", "por que", "interés", "interes", "expectativa"]):
                         if ans.strip().lower() in ["n/a", "no aplica", "ninguna", "ninguno", "na"] or len(ans.strip()) < 15:
-                            resultado[idx] = f"Me motiva enormemente realizar mi práctica profesional en {empresa} por su liderazgo, dinamismo y su despliegue de infraestructura tecnológica de vanguardia. Como estudiante de 4to año de Ingeniería en Infraestructura y Plataformas Tecnológicas en Duoc UC, busco aportar activamente en las áreas de redes, sistemas y continuidad operacional, aprendiendo de su equipo de alto nivel mientras resuelvo desafíos reales con excelencia."
-                return resultado
-            elif len(resultado) > 0:
-                for idx, p in enumerate(preguntas):
-                    if idx not in resultado:
-                        resultado[idx] = resolver_pregunta_reclutador(p.get("pregunta", ""), empresa)
-                return resultado
+                            ans = f"Me motiva enormemente realizar mi práctica profesional en {empresa} por su liderazgo, dinamismo y su despliegue de infraestructura tecnológica de vanguardia. Como estudiante de 4to año de Ingeniería en Infraestructura y Plataformas Tecnológicas en Duoc UC, busco aportar activamente en las áreas de redes, sistemas y continuidad operacional, aprendiendo de su equipo de alto nivel mientras resuelvo desafíos reales con excelencia."
+                    resultado_final[orig_idx] = ans
+                return resultado_final
         except Exception as e:
             print(f"Aviso Gemini {modelo}: {e}")
 
     # Fallback si falla la llamada
-    return {idx: resolver_pregunta_reclutador_fallback(p.get("pregunta", ""), empresa) for idx, p in enumerate(preguntas)}
+    for idx, p in preguntas_para_llm:
+        resultado_final[idx] = resolver_pregunta_reclutador_fallback(p.get("pregunta", ""), empresa)
+    return resultado_final
 
 
 def resolver_pregunta_reclutador(pregunta_raw: str, empresa: str = "la empresa", tipo_input: str = "text") -> str:
-    """Resuelve una pregunta individual usando Gemini 3.5 Flash-Lite, con fallback a regex estructurado."""
+    """Resuelve una pregunta individual dando prioridad a la memoria aprendida del usuario, luego Gemini y finalmente fallback."""
+    if tipo_input != "radio_boolean" and tipo_input != "number":
+        mem_ans = _buscar_en_memoria(pregunta_raw)
+        if mem_ans:
+            return mem_ans.replace("{empresa}", empresa)
+
     if GENAI_AVAILABLE and GEMINI_API_KEY and tipo_input != "radio_boolean":
         try:
             client = genai.Client(api_key=GEMINI_API_KEY)
@@ -304,7 +352,7 @@ def resolver_pregunta_reclutador_fallback(pregunta_raw: str, empresa: str = "la 
     if re.search(r"\b(disponibilidad|fecha de inicio|cu[aá]ndo puedes|comenzar|iniciar|partir|incorporar|horario|diciembre|enero|verano)\b", p):
         if tipo_input == "radio_boolean":
             return "si"
-        return "Disponibilidad diurna completa e inmediata (40 a 45 horas semanales de lunes a viernes, para iniciar de inmediato o en diciembre/enero según requieran). Como detalle importante de gestión académica, en Duoc UC necesitamos consolidar e inscribir formalmente el convenio antes del 15 de noviembre, ya que después de esa fecha tendría que pagar un semestre extra adicional para validarla en horario de verano."
+        return "Disponibilidad diurna completa e inmediata (40 a 45 horas semanales de lunes a viernes, para iniciar de inmediato o en diciembre/enero según requieran). Como detalle importante de gestión académica, en Duoc UC necesitamos consolidar formalmente el convenio de práctica de mínimo 360 horas antes del 15 de noviembre, ya que después de esa fecha tendría que pagar un semestre extra adicional para validarla en horario de verano."
 
     # 9. Licencia de conducir
     if re.search(r"\b(licencia|conducir|clase b|veh[ií]culo)\b", p):

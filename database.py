@@ -618,17 +618,107 @@ def resolver_alerta_y_aprender(alerta_id, pregunta, respuesta, categoria="genera
     conn.close()
 
 
-def buscar_respuesta_aprendida(pregunta):
+def _limpiar_clave_pregunta(pregunta: str) -> str:
+    import re
+    p = (pregunta or "").strip().lower()
+    p = re.sub(r"^(pregunta\s*\d+\s*[:\.\-]?)", "", p).strip()
+    p = re.sub(r"\s+", " ", p)
+    return p
+
+
+def guardar_o_actualizar_respuesta(pregunta_clave: str, respuesta: str, categoria: str = "general", item_id: int = None) -> int:
+    """Crea o actualiza una respuesta en la memoria aprendida de AutoPostula."""
     conn = get_conn()
     cur = conn.cursor()
-    p_clean = pregunta.strip().lower()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    clave = _limpiar_clave_pregunta(pregunta_clave)
+    resp_clean = (respuesta or "").strip()
+
+    if item_id:
+        cur.execute("""
+        UPDATE respuestas_aprendidas
+        SET pregunta_clave = ?, respuesta = ?, categoria = ?
+        WHERE id = ?;
+        """, (clave, resp_clean, categoria, int(item_id)))
+        res_id = int(item_id)
+    else:
+        cur.execute("""
+        INSERT INTO respuestas_aprendidas (pregunta_clave, respuesta, categoria, veces_usada, created_at)
+        VALUES (?, ?, ?, 1, ?)
+        ON CONFLICT(pregunta_clave) DO UPDATE SET
+            respuesta = excluded.respuesta,
+            categoria = CASE WHEN excluded.categoria != 'general' THEN excluded.categoria ELSE respuestas_aprendidas.categoria END,
+            veces_usada = veces_usada + 1;
+        """, (clave, resp_clean, categoria, now))
+        cur.execute("SELECT id FROM respuestas_aprendidas WHERE pregunta_clave = ? LIMIT 1;", (clave,))
+        row = cur.fetchone()
+        res_id = row["id"] if row else cur.lastrowid
+
+    conn.commit()
+    conn.close()
+    return res_id
+
+
+def eliminar_respuesta_aprendida(item_id: int) -> bool:
+    """Elimina una pregunta/respuesta de la memoria del bot."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM respuestas_aprendidas WHERE id = ?;", (int(item_id),))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def buscar_respuesta_aprendida(pregunta):
+    """Busca si existe una respuesta aprendida (exacta, contenida o por alta similitud semántica de palabras clave)."""
+    import re
+    conn = get_conn()
+    cur = conn.cursor()
+    p_clean = _limpiar_clave_pregunta(pregunta)
+    if not p_clean:
+        conn.close()
+        return None
+
+    # 1. Coincidencia exacta
     cur.execute("SELECT respuesta FROM respuestas_aprendidas WHERE pregunta_clave = ? LIMIT 1;", (p_clean,))
     row = cur.fetchone()
-    if not row:
-        cur.execute("SELECT respuesta FROM respuestas_aprendidas WHERE ? LIKE '%' || pregunta_clave || '%' LIMIT 1;", (p_clean,))
-        row = cur.fetchone()
+    if row:
+        conn.close()
+        return row["respuesta"]
+
+    # 2. Coincidencia por subcadena directa
+    cur.execute("SELECT pregunta_clave, respuesta FROM respuestas_aprendidas ORDER BY LENGTH(pregunta_clave) DESC;")
+    all_rows = cur.fetchall()
     conn.close()
-    return row["respuesta"] if row else None
+
+    for r in all_rows:
+        clave = (r["pregunta_clave"] or "").strip().lower()
+        if clave and (clave in p_clean or p_clean in clave) and len(clave) >= 8:
+            return r["respuesta"]
+
+    # 3. Coincidencia por similitud de tokens significativos (>= 70% de coincidencia)
+    stopwords = {"de", "la", "el", "los", "las", "en", "para", "por", "con", "y", "o", "a", "un", "una", "tu", "su", "al", "del", "que", "qué", "cuál", "cual", "cuanto", "cuánto", "como", "cómo", "tienes", "cuentas", "puedes", "si", "no"}
+    tokens_p = set(re.findall(r"[a-záéíóúñ0-9]+", p_clean)) - stopwords
+    if len(tokens_p) >= 2:
+        mejor_score = 0.0
+        mejor_resp = None
+        for r in all_rows:
+            clave = (r["pregunta_clave"] or "").strip().lower()
+            tokens_c = set(re.findall(r"[a-záéíóúñ0-9]+", clave)) - stopwords
+            if len(tokens_c) < 2:
+                continue
+            inter = tokens_p.intersection(tokens_c)
+            union = tokens_p.union(tokens_c)
+            sim = len(inter) / max(1, min(len(tokens_p), len(tokens_c)))
+            jaccard = len(inter) / max(1, len(union))
+            if sim >= 0.75 and jaccard >= 0.45 and sim > mejor_score:
+                mejor_score = sim
+                mejor_resp = r["respuesta"]
+        if mejor_resp:
+            return mejor_resp
+
+    return None
 
 
 def esta_postulado(url_oferta=None, titulo=None, empresa=None) -> bool:
