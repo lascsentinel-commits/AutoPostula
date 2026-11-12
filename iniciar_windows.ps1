@@ -47,7 +47,13 @@ if ($browserExe) {
     Write-Host "[!] No se detectó navegador automático. Ábrelo con: chrome.exe --remote-debugging-port=9222" -ForegroundColor Yellow
 }
 
-# 5. Ejecutar
+# 5. Iniciar Panel Web NOC (puerto 8087) y ejecutar bucle interactivo
+Write-Host "[🌐] Iniciando Panel Web NOC en http://localhost:8087 ..." -ForegroundColor Cyan
+Start-Process -FilePath "python" -ArgumentList "web_dashboard.py" -WindowStyle Hidden
+Start-Sleep -Seconds 2
+if ($browserExe) {
+    Start-Process -FilePath $browserExe -ArgumentList "http://localhost:8087/"
+}
 Write-Host "[🚀] Iniciando AutoPostula..." -ForegroundColor Cyan
 python bucle_pantalla_interactivo.py
 

@@ -1,16 +1,22 @@
-# 🎯 AutoPostula · Postulación Asistida con IA sobre Pantalla Real (Chile)
+# 🪟 AutoPostula · Edición Windows 11 (Postulación Asistida con IA sobre Pantalla Real)
 
-Sistema de postulación asistida y automática a ofertas de **Prácticas Profesionales y Empleos Técnicos** en los principales portales laborales de Chile (**FirstJob, Trabajando.cl, Computrabajo, Laborum, ChileTrabajos, Prácticas Chile**).
+> **💻 Sistema Operativo Principal:** **Windows 11** (Brave / Chrome / Edge vía CDP puerto `9222`), compatible también con WSL2 y Docker.  
+> **🐧 ¿Buscas la versión nativa para Linux Debian / Ubuntu?** Mantuvimos el repositorio dedicado de Linux en: [lascsentinel-commits/AutoPostula-Linux-Debian](https://github.com/lascsentinel-commits/AutoPostula-Linux-Debian). Ambas ediciones comparten funcionalidades y la guía técnica cruzada en [`GUIA_PORTABILIDAD_WINDOWS_LINUX.md`](./GUIA_PORTABILIDAD_WINDOWS_LINUX.md).
 
-A diferencia de los bots headless tradicionales que son bloqueados por Cloudflare o llenan formularios a ciegas, **AutoPostula interactúa sobre tu navegador real (Brave / Chromium vía CDP)**:
+Sistema de postulación asistida y automática a ofertas de **Prácticas Profesionales y Empleos Técnicos** en los 14 principales portales laborales de Chile (**FirstJob, Trabajando.cl, Computrabajo, Laborum, ChileTrabajos, DuocLaboral, LinkedIn, Get on Board, Prácticas Chile, Indeed, BNE, Reqlut, Talent.com/Buk, Empleos Públicos**).
+
+A diferencia de los bots headless tradicionales que son bloqueados por Cloudflare o llenan formularios a ciegas, **AutoPostula interactúa sobre tu navegador real (Brave / Chromium / Edge vía CDP)**:
 - 👁️ **Visualización en Vivo:** Ves exactamente cada pestaña que se abre y cada respuesta que se ingresa.
-- 🤖 **IA Contextual (Gemini 3.5 Flash-Lite):** Responde preguntas técnicas de reclutadores, motivación de empresa, horas y disponibilidad usando el perfil auténtico del alumno.
-- ⏱️ **Ventanita Flotante de Control:** Pastilla y panel modal desplegable en la esquina inferior izquierda:
-  - `[ ⏸️ Pausar Bot ]` / `[ ▶️ Reanudar Bot ]` para revisar o editar con calma.
-  - Selectores dinámicos de tiempo `[ 15s ]`, `[ 30s ]`, `[ 60s ]`, `[ 2m ]`.
-  - `[ 🚀 Enviar Postulación Ahora ]` para omitir la espera restante si ya revisaste.
-  - `[ 🛑 Detener Bot por Completo ]` para detener el bucle con total seguridad.
-- 🛡️ **Verificación Estricta:** Congelamiento de 5 segundos ante mensajes de éxito confirmados y **prohibición de cerrar pestañas** si no hay confirmación explícita.
+- 🔍 **Visor y Botón «Revisar Válidas (14 Portales)» (`http://localhost:8087` + widget):** Muestra un cuadro destacado y el número total en grande, separa **Válidas Disponibles**, **Postulados Confirmados**, **Pausadas / CAPTCHA / Login**, **Ofertas Cerradas** y **Otras en Cola IA**, con lista seleccionable, descripción completa, enlace directo para abrirla y botón para lanzar una oferta puntual.
+- 🧠 **Memoria Activa de Respuestas (`/memoria`):** Cualquier edición que hagas en pantalla se guarda automáticamente y cuentas con panel CRUD web para preguntas y respuestas.
+- 🤖 **IA Contextual (Gemini):** Responde preguntas técnicas de reclutadores, motivación de empresa, horas y disponibilidad usando el perfil auténtico del alumno.
+- ⏱️ **Ventanita Flotante de Control (`v4.9` con watchdog de latido 10s):** Pastilla y panel modal desplegable en la esquina inferior izquierda:
+  - `[ ⏸️ Pausar Bot ]` / `[ ▶️ Reanudar Bot ]` y selectores `[ 15s ]`, `[ 30s ]`, `[ 60s ]`, `[ 2m ]` + límite de pestañas (`- / +`).
+  - `[ 🔊 Leer Preguntas y Respuestas: ON/OFF ]` + `[ 🔇 Lectura Auto Descripción ]`.
+  - `[ 🚀 Enviar Postulación Ahora ]`, `[ ⬅️ Link anterior ]`, `[ ⏭️ Siguiente oferta ]`.
+  - `[ 🕵️ Agente investigador ]`, `[ 🧠 Ver / Editar Memoria (Q&A) ]`, `[ 🔍 Revisar Válidas (14 Portales) ]` y `[ 🛑 Detener Bot por Completo ]`.
+- ⏱️ **Espera Post-Envío de 35s + Aviso 5s Antes:** Tras confirmar postulación, anuncia *"Ya postulamos a {empresa}, esperaré 35 segundos para cerrar la pestaña"* y *"Cerrando"* 5s antes de cerrar la pestaña.
+- 🛡️ **Verificación Estricta y Portales Mapeados:** Detección de páginas 404/cerradas (`No podemos encontrar esta página` / `Ver el aviso finalizado`), Google OAuth en `FirstJob` y `Workday`, actualización de CV PDF vía Jobi en `Laborum`, confirmación `/candidate/postapply` en `Computrabajo`, y respeto estricto de CAPTCHAs sin automatizar. Ver detalles técnicos y compatibilidad Windows/Linux en [`GUIA_PORTABILIDAD_WINDOWS_LINUX.md`](./GUIA_PORTABILIDAD_WINDOWS_LINUX.md).
 
 ---
 

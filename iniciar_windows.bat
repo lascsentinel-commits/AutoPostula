@@ -66,13 +66,16 @@ if not exist "perfil_alumno.json" (
     )
 )
 
-:: 7. Ejecutar bucle interactivo de postulación
+:: 7. Iniciar Panel Web NOC en segundo plano y ejecutar bucle interactivo
 echo.
 echo =====================================================================
-echo   Iniciando bucle de postulación con panel interactivo de control...
+echo   Iniciando Panel Web NOC (http://localhost:8087) y Bucle en Pantalla...
 echo =====================================================================
 echo.
 
+start "AutoPostula Dashboard" /B python web_dashboard.py
+timeout /t 2 >nul
+if defined BROWSER_EXE start "" "%BROWSER_EXE%" "http://localhost:8087/"
 python bucle_pantalla_interactivo.py
 
 echo.
